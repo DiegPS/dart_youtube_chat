@@ -1,0 +1,14 @@
+name: dart_youtube_chat
+description: Anonymous YouTube live chat client for Dart. Polls the YouTube InnerTube API — no OAuth required.
+version: 0.1.0
+repository: https://github.com/DiegPS/dart-youtube-chat
+
+environment:
+  sdk: ^3.0.0
+
+dependencies:
+  http: ^1.2.0
+
+dev_dependencies:
+  lints: ^3.0.0
+  test: ^1.24.0
