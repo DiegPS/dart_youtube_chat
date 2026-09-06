@@ -84,7 +84,99 @@ void main() {
           .having((e) => e.failure, 'failure', YoutubeRequestFailure.timeout)),
     );
   });
+
+  test('builds a localized channel live URL', () async {
+    final client = YoutubeHttpClient(client: MockClient((request) async {
+      expect(request.url.path, '/channel/UC123/live');
+      expect(request.url.queryParameters, containsPair('hl', 'en'));
+      expect(request.url.queryParameters, containsPair('gl', 'US'));
+      return http.Response(_livePage, 200);
+    }));
+    await client.fetchLivePage(const YoutubeId(channelId: 'UC123'));
+  });
+
+  test('builds a localized watch URL for a live id', () async {
+    final client = YoutubeHttpClient(client: MockClient((request) async {
+      expect(request.url.path, '/watch');
+      expect(request.url.queryParameters, containsPair('v', 'video123'));
+      expect(request.url.queryParameters, containsPair('hl', 'en'));
+      return http.Response(_livePage, 200);
+    }));
+    await client.fetchLivePage(const YoutubeId(liveId: 'video123'));
+  });
+
+  test('omits API key query parameter when unavailable', () async {
+    final client = YoutubeHttpClient(client: MockClient((request) async {
+      expect(request.url.queryParameters.containsKey('key'), isFalse);
+      return http.Response(_emptyResponse('next', 1000), 200);
+    }));
+    await client.fetchChatBatch(const FetchOptions(
+      apiKey: '',
+      clientVersion: 'version',
+      continuation: 'continuation',
+      liveId: 'live',
+    ));
+  });
+
+  test('includes API key query parameter when supplied', () async {
+    final client = YoutubeHttpClient(client: MockClient((request) async {
+      expect(request.url.queryParameters['key'], 'test-key');
+      return http.Response(_emptyResponse('next', 1000), 200);
+    }));
+    await client.fetchChatBatch(options);
+  });
+
+  test('reports transport exceptions as network failures', () async {
+    final client = YoutubeHttpClient(
+      client: MockClient((_) async => throw Exception('offline')),
+    );
+    await expectLater(
+      client.fetchChatBatch(options),
+      throwsA(isA<YoutubeRequestException>().having(
+          (error) => error.failure, 'failure', YoutubeRequestFailure.network)),
+    );
+  });
+
+  test('rejects a JSON array as a malformed chat response', () async {
+    final client = YoutubeHttpClient(
+      client: MockClient((_) async => http.Response('[]', 200)),
+    );
+    await expectLater(
+      client.fetchChatBatch(options),
+      throwsA(isA<YoutubeRequestException>().having((error) => error.failure,
+          'failure', YoutubeRequestFailure.malformedResponse)),
+    );
+  });
+
+  test('wraps malformed live page content as a typed failure', () async {
+    final client = YoutubeHttpClient(
+      client: MockClient((_) async => http.Response('<html></html>', 200)),
+    );
+    await expectLater(
+      client.fetchLivePage(const YoutubeId(handle: '@missing')),
+      throwsA(isA<YoutubeRequestException>().having((error) => error.failure,
+          'failure', YoutubeRequestFailure.malformedResponse)),
+    );
+  });
+
+  test('closed client rejects subsequent requests', () async {
+    final client = YoutubeHttpClient(
+      client: MockClient((_) async => http.Response(_livePage, 200)),
+    );
+    client.close();
+    client.close();
+    await expectLater(
+      client.fetchLivePage(const YoutubeId(handle: '@channel')),
+      throwsA(isA<StateError>()),
+    );
+  });
 }
+
+const _livePage = '''
+<link rel="canonical" href="https://www.youtube.com/watch?v=live-id">
+"clientVersion":"2.0"
+"continuation":"next"
+''';
 
 String _emptyResponse(String continuation, int timeoutMs) => jsonEncode({
       'continuationContents': {

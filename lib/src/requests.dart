@@ -3,10 +3,13 @@ import 'dart:convert';
 
 import 'package:dart_youtube_chat/src/parser.dart';
 import 'package:dart_youtube_chat/src/types/data.dart';
+import 'package:dart_youtube_chat/src/types/updated_metadata.dart';
 import 'package:dart_youtube_chat/src/types/yt_response.dart';
 import 'package:http/http.dart' as http;
 
 const _baseUrl = 'https://www.youtube.com/youtubei/v1/live_chat/get_live_chat';
+const _updatedMetadataUrl =
+    'https://www.youtube.com/youtubei/v1/updated_metadata';
 const _youtubeBase = 'https://www.youtube.com';
 const _clientName = 'WEB';
 const _userAgent =
@@ -99,6 +102,50 @@ class YoutubeHttpClient {
       throw YoutubeRequestException(
         YoutubeRequestFailure.malformedResponse,
         'fetchChat',
+        cause: error,
+      );
+    }
+  }
+
+  Future<UpdatedMetadataBatch> fetchUpdatedMetadata(
+    FetchOptions options, {
+    String continuation = '',
+  }) async {
+    if (options.liveId.isEmpty) {
+      throw ArgumentError.value(options.liveId, 'liveId', 'must not be empty');
+    }
+    final url = options.apiKey.isNotEmpty
+        ? Uri.parse('$_updatedMetadataUrl?key=${options.apiKey}')
+        : Uri.parse(_updatedMetadataUrl);
+    final body = <String, dynamic>{
+      'context': {
+        'client': {
+          'clientVersion': options.clientVersion,
+          'clientName': _clientName,
+        },
+      },
+      'videoId': options.liveId,
+      if (continuation.isNotEmpty) 'continuation': continuation,
+    };
+    final response = await _send(
+      'fetchUpdatedMetadata',
+      () => _client.post(
+        url,
+        body: jsonEncode(body),
+        headers: const {'Content-Type': 'application/json; charset=UTF-8'},
+      ),
+    );
+    _requireSuccess(response, 'fetchUpdatedMetadata');
+    try {
+      final decoded = jsonDecode(response.body);
+      if (decoded is! Map<String, dynamic>) {
+        throw const FormatException('Expected a JSON object');
+      }
+      return UpdatedMetadataBatch.fromJson(decoded);
+    } catch (error) {
+      throw YoutubeRequestException(
+        YoutubeRequestFailure.malformedResponse,
+        'fetchUpdatedMetadata',
         cause: error,
       );
     }

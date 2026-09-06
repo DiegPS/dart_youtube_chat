@@ -3,6 +3,7 @@
 library dart_youtube_chat;
 
 export 'src/live_chat.dart' show LiveChat;
+export 'src/updated_metadata.dart' show UpdatedMetadata;
 export 'src/parser.dart'
     show
         getOptionsFromLivePage,
@@ -32,3 +33,4 @@ export 'src/types/data.dart'
         MessageItem,
         SuperChat,
         YoutubeId;
+export 'src/types/updated_metadata.dart';

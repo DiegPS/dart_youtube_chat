@@ -112,6 +112,97 @@ void main() {
     expect(chat.isRunning, isFalse);
     await expectLater(chat.start(), throwsA(isA<StateError>()));
   });
+
+  test('rejects an empty YouTube identifier before making a request', () async {
+    var requests = 0;
+    final transport = YoutubeHttpClient(client: MockClient((_) async {
+      requests++;
+      return http.Response(_livePage, 200);
+    }));
+    final chat = LiveChat(id: const YoutubeId(), client: transport);
+
+    await expectLater(chat.start(), throwsA(isA<ArgumentError>()));
+    expect(requests, 0);
+    chat.stop();
+  });
+
+  test('rejects concurrent start calls', () async {
+    final response = Completer<http.Response>();
+    final requested = Completer<void>();
+    final transport = YoutubeHttpClient(client: MockClient((request) async {
+      if (request.method == 'GET') {
+        requested.complete();
+        return response.future;
+      }
+      return http.Response(_chatResponse('next'), 200);
+    }));
+    final chat = LiveChat(
+      id: const YoutubeId(handle: '@channel'),
+      client: transport,
+    );
+
+    final firstStart = chat.start();
+    await requested.future;
+    await expectLater(chat.start(), throwsA(isA<StateError>()));
+    response.complete(http.Response(_livePage, 200));
+    await firstStart;
+    chat.stop();
+  });
+
+  test('rejects another start while already running', () async {
+    final transport = YoutubeHttpClient(client: MockClient((request) async {
+      if (request.method == 'GET') return http.Response(_livePage, 200);
+      return http.Response(_chatResponse('next'), 200);
+    }));
+    final chat = LiveChat(
+      id: const YoutubeId(handle: '@channel'),
+      client: transport,
+    );
+
+    await chat.start();
+    await expectLater(chat.start(), throwsA(isA<StateError>()));
+    chat.stop();
+  });
+
+  test('stop is idempotent and closes public streams', () async {
+    final transport = YoutubeHttpClient(client: MockClient((request) async {
+      if (request.method == 'GET') return http.Response(_livePage, 200);
+      return http.Response(_chatResponse('next'), 200);
+    }));
+    final chat = LiveChat(
+      id: const YoutubeId(handle: '@channel'),
+      client: transport,
+    );
+    final messagesDone = expectLater(chat.messages, emitsDone);
+    final eventsDone = expectLater(chat.events, emitsDone);
+
+    await chat.start();
+    chat.stop();
+    chat.stop();
+
+    await messagesDone;
+    await eventsDone;
+    expect(chat.isRunning, isFalse);
+  });
+
+  test('does not close an externally supplied HTTP client', () async {
+    final transport = YoutubeHttpClient(client: MockClient((request) async {
+      if (request.method == 'GET') return http.Response(_livePage, 200);
+      return http.Response(_chatResponse('next'), 200);
+    }));
+    final chat = LiveChat(
+      id: const YoutubeId(handle: '@channel'),
+      client: transport,
+    );
+
+    await chat.start();
+    chat.stop();
+
+    final options =
+        await transport.fetchLivePage(const YoutubeId(handle: '@channel'));
+    expect(options.liveId, 'live-id');
+    transport.close();
+  });
 }
 
 const _livePage = '''

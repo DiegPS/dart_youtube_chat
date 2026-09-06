@@ -1,3 +1,14 @@
+## 0.3.0
+
+- Model the complete anonymous `updated_metadata` response, including
+  viewership, title, date, description, response context, continuation timing,
+  entity mutations, and every known like-count field.
+- Add one-shot metadata requests and serialized metadata polling that follows
+  YouTube's continuation token and server-requested interval.
+- Preserve complete raw metadata payloads for unknown and future fields.
+- Add deterministic metadata model, transport, lifecycle, and recovery tests,
+  plus a live metadata inspector.
+
 ## 0.2.0
 
 - Add injectable HTTP transport, explicit timeouts, and typed request errors.
