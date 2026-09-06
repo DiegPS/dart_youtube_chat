@@ -1,97 +1,134 @@
 import 'dart:async';
+import 'dart:collection';
 
 import 'package:dart_youtube_chat/src/requests.dart';
 import 'package:dart_youtube_chat/src/types/data.dart';
 
-/// YouTube live chat poller.
-///
-/// Fetches the live page once, then polls `/live_chat/get_live_chat` at
-/// [interval] (default 1 second) and emits [ChatItem]s on [messages].
-///
-/// ```dart
-/// final chat = await LiveChat.start(YoutubeId(handle: 'MrBeast'));
-///
-/// chat.messages.listen((item) => print(item.author.name));
-///
-/// // when done:
-/// chat.stop();
-/// ```
 class LiveChat {
-  final StreamController<ChatItem> _msgController =
-      StreamController.broadcast();
-  final StreamController<Exception> _errController =
-      StreamController.broadcast();
-  final StreamController<DateTime> _pollController =
-      StreamController.broadcast();
+  LiveChat._(this._id, this._interval, this._client, this._ownsClient);
+
+  factory LiveChat({
+    required YoutubeId id,
+    Duration? interval,
+    YoutubeHttpClient? client,
+  }) {
+    return LiveChat._(
+      id,
+      interval,
+      client ?? YoutubeHttpClient(),
+      client == null,
+    );
+  }
 
   final YoutubeId _id;
-  final Duration _interval;
+  final Duration? _interval;
+  final YoutubeHttpClient _client;
+  final bool _ownsClient;
+  final _msgController = StreamController<ChatItem>.broadcast();
+  final _eventController = StreamController<LiveChatEvent>.broadcast();
+  final _batchController = StreamController<LiveChatBatch>.broadcast();
+  final _errController = StreamController<Exception>.broadcast();
+  final _pollController = StreamController<DateTime>.broadcast();
+  final _seenIds = <String>{};
+  final _seenOrder = Queue<String>();
 
   FetchOptions? _options;
   Timer? _timer;
   bool _running = false;
+  bool _startedOnce = false;
+  bool _pollInFlight = false;
+  bool _closed = false;
 
-  /// Emits every incoming [ChatItem]. Broadcast — multiple listeners allowed.
   Stream<ChatItem> get messages => _msgController.stream;
-
-  /// Non-fatal polling errors. Does not stop the poller.
+  Stream<LiveChatEvent> get events => _eventController.stream;
+  Stream<LiveChatBatch> get batches => _batchController.stream;
   Stream<Exception> get errors => _errController.stream;
-
-  /// Successful poll ticks, even if no new messages were returned.
   Stream<DateTime> get polls => _pollController.stream;
-
-  /// The live video ID once [start] succeeds.
   String get liveId => _options?.liveId ?? '';
+  bool get isRunning => _running;
 
-  LiveChat._(this._id, this._interval);
-
-  /// Creates a [LiveChat] for [id] but does **not** start polling yet.
-  /// Use [start] to begin.
-  factory LiveChat({
-    required YoutubeId id,
-    Duration interval = const Duration(seconds: 1),
-  }) =>
-      LiveChat._(id, interval);
-
-  /// Fetches the live page, then starts the polling timer.
-  /// Throws if the channel is not found or the stream is already finished.
   Future<void> start() async {
+    if (_closed) throw StateError('LiveChat is closed');
     if (_running) throw StateError('LiveChat is already running');
+    if (_startedOnce) {
+      throw StateError('A stopped LiveChat cannot be restarted');
+    }
     if (_id.channelId.isEmpty && _id.liveId.isEmpty && _id.handle.isEmpty) {
       throw ArgumentError('YoutubeId must have channelId, liveId, or handle');
     }
-
-    final opts = await fetchLivePage(_id);
-    _options = opts;
+    _startedOnce = true;
+    try {
+      _options = await _client.fetchLivePage(_id);
+    } catch (_) {
+      if (!_closed) _startedOnce = false;
+      rethrow;
+    }
+    if (_closed) {
+      throw StateError('LiveChat was stopped while starting');
+    }
     _running = true;
-    _timer = Timer.periodic(_interval, (_) => _execute());
+    _schedule(Duration.zero);
   }
 
-  /// Stops polling and closes both streams.
   void stop() {
+    if (_closed) return;
+    _closed = true;
     _running = false;
     _timer?.cancel();
     _timer = null;
-    if (!_msgController.isClosed) _msgController.close();
-    if (!_errController.isClosed) _errController.close();
-    if (!_pollController.isClosed) _pollController.close();
+    if (_ownsClient) _client.close();
+    unawaited(_msgController.close());
+    unawaited(_eventController.close());
+    unawaited(_batchController.close());
+    unawaited(_errController.close());
+    unawaited(_pollController.close());
+  }
+
+  void _schedule(Duration delay) {
+    if (!_running) return;
+    _timer?.cancel();
+    _timer = Timer(delay, _execute);
   }
 
   Future<void> _execute() async {
-    final opts = _options;
-    if (opts == null || !_running) return;
-
+    final options = _options;
+    if (options == null || !_running || _pollInFlight) return;
+    _pollInFlight = true;
+    var nextDelay = _interval ?? const Duration(seconds: 1);
     try {
-      final (items, continuation) = await fetchChat(opts);
-      _options = opts.copyWith(continuation: continuation);
+      final batch = await _client.fetchChatBatch(options);
+      if (!_running) return;
+      if (batch.continuation.isNotEmpty) {
+        _options = options.copyWith(continuation: batch.continuation);
+      }
+      nextDelay = _interval ?? batch.pollingInterval;
       if (!_pollController.isClosed) {
         _pollController.add(DateTime.now().toUtc());
       }
-      for (final item in items) {
-        if (!_msgController.isClosed) _msgController.add(item);
+      if (!_batchController.isClosed) _batchController.add(batch);
+      for (final event in batch.events) {
+        if (!_eventController.isClosed) _eventController.add(event);
       }
-    } on Exception catch (e) {
-      if (!_errController.isClosed) _errController.add(e);
+      for (final item in batch.messages) {
+        if (_remember(item.id) && !_msgController.isClosed) {
+          _msgController.add(item);
+        }
+      }
+    } on Exception catch (error) {
+      if (_running && !_errController.isClosed) _errController.add(error);
+    } finally {
+      _pollInFlight = false;
+      if (_running) _schedule(nextDelay);
     }
+  }
+
+  bool _remember(String id) {
+    if (id.isEmpty) return true;
+    if (!_seenIds.add(id)) return false;
+    _seenOrder.add(id);
+    while (_seenOrder.length > 5000) {
+      _seenIds.remove(_seenOrder.removeFirst());
+    }
+    return true;
   }
 }

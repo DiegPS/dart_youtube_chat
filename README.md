@@ -1,39 +1,64 @@
-<!-- 
-This README describes the package. If you publish this package to pub.dev,
-this README's contents appear on the landing page for your package.
+# dart_youtube_chat
 
-For information about how to write a good package README, see the guide for
-[writing package pages](https://dart.dev/tools/pub/writing-package-pages). 
-
-For general information about developing packages, see the Dart guide for
-[creating packages](https://dart.dev/guides/libraries/create-packages)
-and the Flutter guide for
-[developing packages and plugins](https://flutter.dev/to/develop-packages). 
--->
-
-TODO: Put a short description of the package here that helps potential users
-know whether this package might be useful for them.
+Anonymous, dependency-injectable YouTube live-chat client for Dart. It resolves
+a live stream from a channel ID, video ID, or handle and polls YouTube's public
+InnerTube chat response without OAuth.
 
 ## Features
 
-TODO: List what your package can do. Maybe include images, gifs, or videos.
-
-## Getting started
-
-TODO: List prerequisites and provide or point to information on how to
-start using the package.
+- Serialized polling that follows YouTube's requested interval.
+- Message-ID deduplication and non-fatal error streams.
+- Text, emoji, memberships, paid messages, and paid stickers.
+- Every image variant with dimensions and normalized HTTPS URLs.
+- Multiple author badges.
+- Secondary banner, ticker, notice, and unknown events with their raw payload.
+- Injectable `http.Client`, request timeouts, and typed failures.
 
 ## Usage
 
-TODO: Include short and useful examples for package users. Add longer examples
-to `/example` folder. 
-
 ```dart
-const like = 'sample';
+final chat = LiveChat(
+  id: const YoutubeId(handle: '@channel'),
+);
+
+chat.messages.listen((message) {
+  print('${message.author.name}: ${message.message.length} parts');
+});
+chat.events.listen((event) {
+  print('${event.actionType}/${event.rendererType}');
+});
+chat.errors.listen(print);
+
+await chat.start();
+// Later:
+chat.stop();
 ```
 
-## Additional information
+For a single request or deterministic tests, inject a client:
 
-TODO: Tell users more about the package: where to find more information, how to 
-contribute to the package, how to file issues, what response they can expect 
-from the package authors, and more.
+```dart
+final youtube = YoutubeHttpClient(
+  client: myHttpClient,
+  requestTimeout: const Duration(seconds: 10),
+);
+final options = await youtube.fetchLivePage(
+  const YoutubeId(liveId: 'video-id'),
+);
+final batch = await youtube.fetchChatBatch(options);
+youtube.close();
+```
+
+`LiveChatEvent.raw` and `ChatItem.raw` intentionally expose unrecognized
+YouTube fields for forward-compatible integrations. They may contain tracking
+or continuation values; applications should not log them directly.
+
+## Live schema inspection
+
+The included inspector reports only aggregate schema information and never
+prints chat text, user names, API keys, or continuation tokens:
+
+```shell
+dart run bin/inspect_live_chat.dart "@channel" 5
+```
+
+InnerTube is an undocumented YouTube interface and can change without notice.

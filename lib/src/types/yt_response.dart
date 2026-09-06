@@ -72,8 +72,7 @@ class AuthorBadgeEntry {
   factory AuthorBadgeEntry.fromJson(Map<String, dynamic> j) {
     final renderer =
         j['liveChatAuthorBadgeRenderer'] as Map<String, dynamic>? ?? {};
-    final customThumb =
-        renderer['customThumbnail'] as Map<String, dynamic>?;
+    final customThumb = renderer['customThumbnail'] as Map<String, dynamic>?;
     final icon = renderer['icon'] as Map<String, dynamic>?;
     return AuthorBadgeEntry(
       customThumbnails: customThumb == null
@@ -229,12 +228,16 @@ class ActionItem {
   final LiveChatPaidMessageRenderer? paidMessage;
   final LiveChatMembershipItemRenderer? membership;
   final LiveChatPaidStickerRenderer? paidSticker;
+  final Map<String, dynamic> raw;
+  final String rendererType;
 
   const ActionItem({
     this.textMessage,
     this.paidMessage,
     this.membership,
     this.paidSticker,
+    this.raw = const {},
+    this.rendererType = '',
   });
 
   factory ActionItem.fromJson(Map<String, dynamic> j) => ActionItem(
@@ -254,13 +257,24 @@ class ActionItem {
             ? LiveChatPaidStickerRenderer.fromJson(
                 j['liveChatPaidStickerRenderer'] as Map<String, dynamic>)
             : null,
+        raw: Map.unmodifiable(j),
+        rendererType: j.keys.firstWhere(
+          (key) => key.endsWith('Renderer'),
+          orElse: () => '',
+        ),
       );
 }
 
 class Action {
   final ActionItem? addChatItemAction;
+  final Map<String, dynamic> raw;
+  final String actionType;
 
-  const Action({this.addChatItemAction});
+  const Action({
+    this.addChatItemAction,
+    this.raw = const {},
+    this.actionType = '',
+  });
 
   factory Action.fromJson(Map<String, dynamic> j) {
     final add = j['addChatItemAction'] as Map<String, dynamic>?;
@@ -268,6 +282,11 @@ class Action {
       addChatItemAction: add != null
           ? ActionItem.fromJson(add['item'] as Map<String, dynamic>? ?? {})
           : null,
+      raw: Map.unmodifiable(j),
+      actionType: j.keys.firstWhere(
+        (key) => key != 'clickTrackingParams' && key != 'trackingParams',
+        orElse: () => j.keys.isEmpty ? '' : j.keys.first,
+      ),
     );
   }
 }
@@ -275,10 +294,12 @@ class Action {
 class ContinuationData {
   final String? invalidationContinuation;
   final String? timedContinuation;
+  final int timeoutMs;
 
   const ContinuationData({
     this.invalidationContinuation,
     this.timedContinuation,
+    this.timeoutMs = 1000,
   });
 
   String get continuation =>
@@ -290,6 +311,9 @@ class ContinuationData {
     return ContinuationData(
       invalidationContinuation: inv?['continuation'] as String?,
       timedContinuation: timed?['continuation'] as String?,
+      timeoutMs: (timed?['timeoutMs'] as num?)?.toInt() ??
+          (inv?['timeoutMs'] as num?)?.toInt() ??
+          1000,
     );
   }
 }

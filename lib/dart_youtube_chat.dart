@@ -3,16 +3,32 @@
 library dart_youtube_chat;
 
 export 'src/live_chat.dart' show LiveChat;
-export 'src/parser.dart' show getOptionsFromLivePage, parseChatData, convertColorToHex6;
-export 'src/requests.dart' show fetchChat, fetchLivePage;
+export 'src/parser.dart'
+    show
+        getOptionsFromLivePage,
+        parseChatBatch,
+        parseChatData,
+        convertColorToHex6,
+        normalizeYoutubeImageUrl;
+export 'src/requests.dart'
+    show
+        YoutubeHttpClient,
+        YoutubeRequestFailure,
+        YoutubeRequestException,
+        fetchChat,
+        fetchLivePage;
 export 'src/types/data.dart'
     show
         Author,
         Badge,
         ChatItem,
+        ChatItemKind,
         EmojiItem,
         FetchOptions,
         ImageItem,
+        ImageVariant,
+        LiveChatBatch,
+        LiveChatEvent,
         MessageItem,
         SuperChat,
         YoutubeId;

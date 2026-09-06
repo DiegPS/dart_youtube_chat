@@ -51,26 +51,64 @@ FetchOptions getOptionsFromLivePage(String html) {
 /// Parses a [GetLiveChatResponse] into a list of [ChatItem]s and the next
 /// continuation token.
 (List<ChatItem>, String) parseChatData(GetLiveChatResponse data) {
+  final batch = parseChatBatch(data);
+  return (batch.messages, batch.continuation);
+}
+
+LiveChatBatch parseChatBatch(GetLiveChatResponse data) {
   final items = <ChatItem>[];
+  final events = <LiveChatEvent>[];
   for (final action in data.actions) {
     final item = _parseActionToChatItem(action);
-    if (item != null) items.add(item);
+    if (item != null) {
+      items.add(item);
+    } else {
+      events.add(_parseEvent(action));
+    }
   }
-
-  String continuation = '';
-  if (data.continuations.isNotEmpty) {
-    continuation = data.continuations.first.continuation;
-  }
-
-  return (items, continuation);
+  final continuation =
+      data.continuations.isEmpty ? null : data.continuations.first;
+  return LiveChatBatch(
+    messages: items,
+    events: events,
+    continuation: continuation?.continuation ?? '',
+    pollingInterval: Duration(milliseconds: continuation?.timeoutMs ?? 1000),
+  );
 }
 
 // ── helpers ────────────────────────────────────────────────────────────────────
 
 ImageItem _parseThumbnailToImageItem(List<Thumbnail> thumbnails, String alt) {
   if (thumbnails.isEmpty) return ImageItem(url: '', alt: alt);
-  // Take the last (largest) thumbnail — same as the Go implementation.
-  return ImageItem(url: thumbnails.last.url, alt: alt);
+  final variants = thumbnails
+      .map((thumbnail) => ImageVariant(
+            url: normalizeYoutubeImageUrl(thumbnail.url),
+            width: thumbnail.width,
+            height: thumbnail.height,
+          ))
+      .toList(growable: false);
+  final selected = variants.last;
+  return ImageItem(
+    url: selected.url,
+    alt: alt,
+    width: selected.width,
+    height: selected.height,
+    variants: variants,
+  );
+}
+
+String normalizeYoutubeImageUrl(String value) {
+  final trimmed = value.trim();
+  if (trimmed.startsWith('//')) return 'https:$trimmed';
+  final uri = Uri.tryParse(trimmed);
+  if (uri != null &&
+      uri.scheme == 'http' &&
+      (uri.host.endsWith('googleusercontent.com') ||
+          uri.host.endsWith('ggpht.com') ||
+          uri.host.endsWith('ytimg.com'))) {
+    return uri.replace(scheme: 'https').toString();
+  }
+  return trimmed;
 }
 
 /// Converts a 32-bit ARGB integer to a #RRGGBB hex string.
@@ -87,14 +125,14 @@ List<MessageItem> _parseMessageRuns(List<MessageRun> runs) {
     } else if (run.emoji != null) {
       final emoji = run.emoji!;
       // Use first thumbnail (shift() in the original TS).
-      final thumbUrl =
-          emoji.thumbnails.isNotEmpty ? emoji.thumbnails.first.url : '';
       final shortcut = emoji.shortcuts.isNotEmpty ? emoji.shortcuts.first : '';
+      final image = _parseThumbnailToImageItem(emoji.thumbnails, shortcut);
       items.add(MessageItem.emoji(EmojiItem(
-        url: thumbUrl,
+        url: image.url,
         alt: shortcut,
         emojiText: emoji.isCustomEmoji ? shortcut : emoji.emojiId,
         isCustomEmoji: emoji.isCustomEmoji,
+        variants: image.variants,
       )));
     }
   }
@@ -109,6 +147,8 @@ ChatItem? _parseActionToChatItem(Action action) {
   List<MessageRun> messageRuns = [];
   bool isMembership = false;
   bool isMembershipEvent = false;
+  var kind = ChatItemKind.text;
+  var membershipText = '';
 
   if (item.textMessage != null) {
     base = item.textMessage!.base;
@@ -116,13 +156,17 @@ ChatItem? _parseActionToChatItem(Action action) {
   } else if (item.paidMessage != null) {
     base = item.paidMessage!.base;
     messageRuns = item.paidMessage!.messageRuns;
+    kind = ChatItemKind.paidMessage;
   } else if (item.paidSticker != null) {
     base = item.paidSticker!.base;
+    kind = ChatItemKind.paidSticker;
   } else if (item.membership != null) {
     base = item.membership!.base;
     messageRuns = item.membership!.headerSubtextRuns;
     isMembership = true;
     isMembershipEvent = true;
+    kind = ChatItemKind.membership;
+    membershipText = _plainText(messageRuns);
   }
 
   if (base == null) return null;
@@ -139,18 +183,18 @@ ChatItem? _parseActionToChatItem(Action action) {
   final authorThumb =
       _parseThumbnailToImageItem(base.authorThumbnails, base.authorName ?? '');
 
-  Badge? badge;
+  final badges = <Badge>[];
   bool isOwner = false;
   bool isVerified = false;
   bool isModerator = false;
 
   for (final entry in base.authorBadges) {
     if (entry.customThumbnails != null) {
-      badge = Badge(
+      badges.add(Badge(
         thumbnail:
             _parseThumbnailToImageItem(entry.customThumbnails!, entry.tooltip),
         label: entry.tooltip,
-      );
+      ));
       isMembership = true;
     } else if (entry.iconType != null) {
       switch (entry.iconType) {
@@ -187,7 +231,8 @@ ChatItem? _parseActionToChatItem(Action action) {
       name: base.authorName ?? '',
       thumbnail: authorThumb,
       channelId: base.authorExternalChannelId,
-      badge: badge,
+      badge: badges.isEmpty ? null : badges.first,
+      badges: badges,
     ),
     message: _parseMessageRuns(messageRuns),
     superChat: superChat,
@@ -197,5 +242,67 @@ ChatItem? _parseActionToChatItem(Action action) {
     isVerified: isVerified,
     isModerator: isModerator,
     timestamp: timestamp,
+    kind: kind,
+    membershipText: membershipText,
+    rendererType: item.rendererType,
+    raw: item.raw,
   );
+}
+
+String _plainText(List<MessageRun> runs) => runs
+    .map((run) =>
+        run.text ??
+        (run.emoji?.shortcuts.isNotEmpty == true
+            ? run.emoji!.shortcuts.first
+            : run.emoji?.emojiId ?? ''))
+    .join();
+
+LiveChatEvent _parseEvent(Action action) {
+  final renderer = _findRenderer(action.raw);
+  final rendererId = renderer?.$2['id'];
+  return LiveChatEvent(
+    actionType: action.actionType,
+    rendererType: renderer?.$1 ?? '',
+    id: rendererId is String ? rendererId : '',
+    text: _extractText(renderer?.$2),
+    raw: action.raw,
+  );
+}
+
+(String, Map<String, dynamic>)? _findRenderer(Object? value) {
+  if (value is Map<String, dynamic>) {
+    for (final entry in value.entries) {
+      if (entry.key.endsWith('Renderer') &&
+          entry.value is Map<String, dynamic>) {
+        return (entry.key, entry.value as Map<String, dynamic>);
+      }
+      final found = _findRenderer(entry.value);
+      if (found != null) return found;
+    }
+  } else if (value is List) {
+    for (final item in value) {
+      final found = _findRenderer(item);
+      if (found != null) return found;
+    }
+  }
+  return null;
+}
+
+String _extractText(Map<String, dynamic>? renderer) {
+  if (renderer == null) return '';
+  for (final key in const ['message', 'headerPrimaryText', 'headerSubtext']) {
+    final value = renderer[key];
+    if (value is Map<String, dynamic>) {
+      final simple = value['simpleText'];
+      if (simple is String) return simple;
+      final runs = value['runs'];
+      if (runs is List) {
+        return runs
+            .whereType<Map<String, dynamic>>()
+            .map((run) => run['text'] as String? ?? '')
+            .join();
+      }
+    }
+  }
+  return '';
 }
