@@ -3,6 +3,11 @@
 library dart_youtube_chat;
 
 export 'src/live_chat.dart' show LiveChat;
+export 'src/external_emotes.dart'
+    show
+        YoutubeExternalEmoteHttpException,
+        YoutubeExternalEmoteLoader,
+        applyYoutubeExternalEmotes;
 export 'src/live_session.dart' show YoutubeLiveLifecycle, YoutubeLiveSession;
 export 'src/updated_metadata.dart' show UpdatedMetadata;
 export 'src/parser.dart'

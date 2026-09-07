@@ -37,6 +37,7 @@ class YoutubeLiveSession {
   final _errorController = StreamController<Exception>.broadcast();
   final _chatErrorController = StreamController<Exception>.broadcast();
   final _metadataErrorController = StreamController<Exception>.broadcast();
+  final _enrichmentErrorController = StreamController<Exception>.broadcast();
   final _chatPollController = StreamController<DateTime>.broadcast();
   final _metadataPollController = StreamController<DateTime>.broadcast();
   final _lifecycleController =
@@ -68,6 +69,7 @@ class YoutubeLiveSession {
 
   /// Errors emitted by `updated_metadata` polling only.
   Stream<Exception> get metadataErrors => _metadataErrorController.stream;
+  Stream<Exception> get enrichmentErrors => _enrichmentErrorController.stream;
   Stream<DateTime> get chatPolls => _chatPollController.stream;
   Stream<DateTime> get metadataPolls => _metadataPollController.stream;
   Stream<YoutubeLiveLifecycle> get lifecycle => _lifecycleController.stream;
@@ -139,6 +141,7 @@ class YoutubeLiveSession {
     unawaited(_errorController.close());
     unawaited(_chatErrorController.close());
     unawaited(_metadataErrorController.close());
+    unawaited(_enrichmentErrorController.close());
     unawaited(_chatPollController.close());
     unawaited(_metadataPollController.close());
     unawaited(_lifecycleController.close());
@@ -165,6 +168,7 @@ class YoutubeLiveSession {
       }
     }));
     _listenErrors(chat.errors, _chatErrorController);
+    _listen(chat.enrichmentErrors, _enrichmentErrorController);
     _listenErrors(metadata.errors, _metadataErrorController);
     _listen(chat.polls, _chatPollController);
     _listen(metadata.polls, _metadataPollController);

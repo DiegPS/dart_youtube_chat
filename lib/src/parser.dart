@@ -10,6 +10,13 @@ final _regexClientVer =
     RegExp(r'''['"]clientVersion['"]\s*:\s*['"]([\d.]+?)['"]''');
 final _regexContinuation =
     RegExp(r'''['"]continuation['"]\s*:\s*['"](.+?)['"]''');
+final _regexVideoChannelId = RegExp(
+  r'''['"]videoDetails['"]\s*:\s*\{.{0,8000}?['"]channelId['"]\s*:\s*['"](UC[A-Za-z0-9_-]{22})['"]''',
+  dotAll: true,
+);
+final _regexExternalChannelId = RegExp(
+  r'''['"]externalChannelId['"]\s*:\s*['"](UC[A-Za-z0-9_-]{22})['"]''',
+);
 
 /// Parses the raw HTML of a YouTube live page and returns [FetchOptions].
 /// Throws if the stream is finished, not found, or required fields are missing.
@@ -45,6 +52,9 @@ FetchOptions getOptionsFromLivePage(String html) {
     clientVersion: clientVersion,
     continuation: continuation,
     liveId: liveId,
+    channelId: _regexVideoChannelId.firstMatch(html)?.group(1) ??
+        _regexExternalChannelId.firstMatch(html)?.group(1) ??
+        '',
   );
 }
 

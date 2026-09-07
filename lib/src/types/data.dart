@@ -104,19 +104,23 @@ class FetchOptions {
   final String clientVersion;
   final String continuation;
   final String liveId;
+  final String channelId;
 
   const FetchOptions({
     required this.apiKey,
     required this.clientVersion,
     required this.continuation,
     required this.liveId,
+    this.channelId = '',
   });
 
-  FetchOptions copyWith({String? continuation}) => FetchOptions(
+  FetchOptions copyWith({String? continuation, String? channelId}) =>
+      FetchOptions(
         apiKey: apiKey,
         clientVersion: clientVersion,
         continuation: continuation ?? this.continuation,
         liveId: liveId,
+        channelId: channelId ?? this.channelId,
       );
 }
 
@@ -269,6 +273,25 @@ class ChatItem {
     this.menuActions = const [],
     this.raw = const {},
   });
+
+  ChatItem copyWith({List<MessageItem>? message}) => ChatItem(
+        id: id,
+        author: author,
+        message: message ?? this.message,
+        superChat: superChat,
+        isMembership: isMembership,
+        isMembershipEvent: isMembershipEvent,
+        isOwner: isOwner,
+        isVerified: isVerified,
+        isModerator: isModerator,
+        timestamp: timestamp,
+        kind: kind,
+        membershipText: membershipText,
+        rendererType: rendererType,
+        buttons: buttons,
+        menuActions: menuActions,
+        raw: raw,
+      );
 }
 
 enum LiveChatEventKind {

@@ -1,3 +1,11 @@
+## 0.6.0
+
+- Extract the broadcaster channel ID directly from the live page.
+- Load optional channel-specific BetterTTV, FrankerFaceZ, and 7TV catalogs
+  without authentication or blocking chat polling.
+- Preserve native YouTube emoji while replacing only complete external-emote
+  text tokens.
+
 ## 0.5.0
 
 - Separate live-session chat errors from metadata refresh errors while keeping

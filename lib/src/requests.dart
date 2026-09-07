@@ -66,7 +66,10 @@ class YoutubeHttpClient {
     );
     _requireSuccess(response, 'fetchLivePage');
     try {
-      return getOptionsFromLivePage(response.body);
+      final options = getOptionsFromLivePage(response.body);
+      return options.channelId.isEmpty && id.channelId.isNotEmpty
+          ? options.copyWith(channelId: id.channelId)
+          : options;
     } catch (error) {
       throw YoutubeRequestException(
         YoutubeRequestFailure.malformedResponse,

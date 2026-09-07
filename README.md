@@ -30,6 +30,8 @@ only as read-only data.
   anonymous live-page rediscovery, while stale metadata tokens reset safely.
 - Message-ID deduplication with bounded memory.
 - Typed text, custom emoji, memberships, Super Chats, and paid stickers.
+- Optional channel-specific BetterTTV, FrankerFaceZ, and 7TV emotes whenever
+  the live page exposes the broadcaster's channel ID directly.
 - Typed deletion, banner, ticker, notice, poll, tooltip, and gift events.
 - Full image variant lists, dimensions, HTTPS normalization, and size selection.
 - Incremental metadata batches plus an accumulated metadata snapshot.
@@ -41,7 +43,7 @@ only as read-only data.
 
 ```yaml
 dependencies:
-  dart_youtube_chat: ^0.4.0
+  dart_youtube_chat: ^0.6.0
 ```
 
 ```sh

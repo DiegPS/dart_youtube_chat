@@ -3,6 +3,7 @@ import 'dart:collection';
 import 'dart:math';
 
 import 'package:dart_youtube_chat/src/requests.dart';
+import 'package:dart_youtube_chat/src/external_emotes.dart';
 import 'package:dart_youtube_chat/src/types/data.dart';
 
 class LiveChat {
@@ -16,6 +17,8 @@ class LiveChat {
     this._maximumRetryDelay,
     this._rediscoverAfterFailures,
     this._randomDouble,
+    this._emoteLoader,
+    this._ownsEmoteLoader,
   );
 
   factory LiveChat({
@@ -26,6 +29,8 @@ class LiveChat {
     Duration maximumRetryDelay = const Duration(seconds: 30),
     int rediscoverAfterFailures = 3,
     double Function()? randomDouble,
+    YoutubeExternalEmoteLoader? externalEmoteLoader,
+    bool loadExternalEmotes = true,
   }) {
     return LiveChat._(
       id,
@@ -37,6 +42,10 @@ class LiveChat {
       maximumRetryDelay,
       rediscoverAfterFailures,
       randomDouble ?? Random().nextDouble,
+      loadExternalEmotes
+          ? externalEmoteLoader ?? YoutubeExternalEmoteLoader()
+          : null,
+      loadExternalEmotes && externalEmoteLoader == null,
     );
   }
 
@@ -53,6 +62,8 @@ class LiveChat {
     Duration maximumRetryDelay = const Duration(seconds: 30),
     int rediscoverAfterFailures = 3,
     double Function()? randomDouble,
+    YoutubeExternalEmoteLoader? externalEmoteLoader,
+    bool loadExternalEmotes = true,
   }) {
     return LiveChat._(
       id,
@@ -64,6 +75,10 @@ class LiveChat {
       maximumRetryDelay,
       rediscoverAfterFailures,
       randomDouble ?? Random().nextDouble,
+      loadExternalEmotes
+          ? externalEmoteLoader ?? YoutubeExternalEmoteLoader()
+          : null,
+      loadExternalEmotes && externalEmoteLoader == null,
     );
   }
 
@@ -75,11 +90,14 @@ class LiveChat {
   final Duration _maximumRetryDelay;
   final int _rediscoverAfterFailures;
   final double Function() _randomDouble;
+  final YoutubeExternalEmoteLoader? _emoteLoader;
+  final bool _ownsEmoteLoader;
   final _msgController = StreamController<ChatItem>.broadcast();
   final _eventController = StreamController<LiveChatEvent>.broadcast();
   final _batchController = StreamController<LiveChatBatch>.broadcast();
   final _errController = StreamController<Exception>.broadcast();
   final _pollController = StreamController<DateTime>.broadcast();
+  final _enrichmentErrorController = StreamController<Exception>.broadcast();
   final _seenIds = <String>{};
   final _seenOrder = Queue<String>();
 
@@ -90,12 +108,14 @@ class LiveChat {
   bool _pollInFlight = false;
   bool _closed = false;
   int _consecutiveFailures = 0;
+  Map<String, EmojiItem> _externalEmotes = const {};
 
   Stream<ChatItem> get messages => _msgController.stream;
   Stream<LiveChatEvent> get events => _eventController.stream;
   Stream<LiveChatBatch> get batches => _batchController.stream;
   Stream<Exception> get errors => _errController.stream;
   Stream<DateTime> get polls => _pollController.stream;
+  Stream<Exception> get enrichmentErrors => _enrichmentErrorController.stream;
   String get liveId => _options?.liveId ?? '';
   bool get isRunning => _running;
 
@@ -120,10 +140,16 @@ class LiveChat {
         rethrow;
       }
     }
+    if (_options!.channelId.isEmpty && _id.channelId.isNotEmpty) {
+      _options = _options!.copyWith(channelId: _id.channelId);
+    }
     if (_closed) {
       throw StateError('LiveChat was stopped while starting');
     }
     _running = true;
+    if (_emoteLoader != null && _options!.channelId.isNotEmpty) {
+      unawaited(_loadExternalEmotes(_options!.channelId));
+    }
     _schedule(Duration.zero);
   }
 
@@ -134,11 +160,13 @@ class LiveChat {
     _timer?.cancel();
     _timer = null;
     if (_ownsClient) _client.close();
+    if (_ownsEmoteLoader) _emoteLoader?.close();
     unawaited(_msgController.close());
     unawaited(_eventController.close());
     unawaited(_batchController.close());
     unawaited(_errController.close());
     unawaited(_pollController.close());
+    unawaited(_enrichmentErrorController.close());
   }
 
   void _schedule(Duration delay) {
@@ -174,7 +202,9 @@ class LiveChat {
       }
       for (final item in batch.messages) {
         if (_remember(item.id) && !_msgController.isClosed) {
-          _msgController.add(item);
+          _msgController.add(item.copyWith(
+            message: applyYoutubeExternalEmotes(item.message, _externalEmotes),
+          ));
         }
       }
     } on Exception catch (error) {
@@ -196,6 +226,20 @@ class LiveChat {
       _pollInFlight = false;
       if (_running) _schedule(nextDelay);
     }
+  }
+
+  Future<void> _loadExternalEmotes(String channelId) async {
+    final loaded = await _emoteLoader!.load(
+      channelId,
+      onError: (error, _) {
+        if (_running && !_enrichmentErrorController.isClosed) {
+          _enrichmentErrorController.add(
+            error is Exception ? error : Exception(error.toString()),
+          );
+        }
+      },
+    );
+    if (_running) _externalEmotes = loaded;
   }
 
   bool get _canRediscover =>

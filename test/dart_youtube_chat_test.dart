@@ -38,6 +38,34 @@ void main() {
       expect(opts.continuation, equals('cont_token_xyz'));
     });
 
+    test('getOptionsFromLivePage exposes the broadcaster channel ID', () {
+      const html = '''
+        <link rel="canonical" href="https://www.youtube.com/watch?v=testId123">
+        "clientVersion": "2.20240101.00.00"
+        "continuation": "cont_token_xyz"
+        "videoDetails":{"videoId":"abcdefghijk",
+        "channelId":"UC1234567890123456789012"}
+      ''';
+      final options = getOptionsFromLivePage(html);
+
+      expect(options.channelId, 'UC1234567890123456789012');
+    });
+
+    test('uses the public microformat external channel ID as fallback', () {
+      const html = '''
+        <link rel="canonical" href="https://www.youtube.com/watch?v=testId123">
+        "clientVersion":"2.20240101.00.00"
+        "continuation":"cont_token_xyz"
+        "ownerProfileUrl":"http://www.youtube.com/@creator",
+        "externalChannelId":"UCabcdefghijklmnopqrstuv"
+      ''';
+
+      expect(
+        getOptionsFromLivePage(html).channelId,
+        'UCabcdefghijklmnopqrstuv',
+      );
+    });
+
     test('getOptionsFromLivePage works without INNERTUBE_API_KEY', () {
       const fakeHtml = '''
         <link rel="canonical" href="https://www.youtube.com/watch?v=noKeyId">
