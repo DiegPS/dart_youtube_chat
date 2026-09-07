@@ -49,10 +49,12 @@ void main() {
 
     final message = session.messages.first;
     final metadata = session.metadataStates.first;
+    final lifecycle = session.lifecycle.first;
     await session.start();
 
     expect((await message).id, 'message-1');
     expect((await metadata).viewership?.originalViewCountValue, 88);
+    expect(await lifecycle, YoutubeLiveLifecycle.live);
     expect(pageRequests, 1);
     expect(session.liveId, 'live-id');
     session.stop();
@@ -83,6 +85,7 @@ void main() {
     final metadataDone = expectLater(session.metadataStates, emitsDone);
     final chatErrorsDone = expectLater(session.chatErrors, emitsDone);
     final metadataErrorsDone = expectLater(session.metadataErrors, emitsDone);
+    final lifecycleDone = expectLater(session.lifecycle, emitsDone);
 
     await session.start();
     session.stop();
@@ -92,6 +95,7 @@ void main() {
     await metadataDone;
     await chatErrorsDone;
     await metadataErrorsDone;
+    await lifecycleDone;
     expect(session.isRunning, isFalse);
   });
 

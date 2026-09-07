@@ -63,6 +63,36 @@ void main() {
     chat.stop();
   });
 
+  test('rediscovers the live page after repeated continuation failures',
+      () async {
+    var pageRequests = 0;
+    var chatRequests = 0;
+    final transport = YoutubeHttpClient(client: MockClient((request) async {
+      if (request.method == 'GET') {
+        pageRequests++;
+        return http.Response(_livePage, 200);
+      }
+      chatRequests++;
+      if (chatRequests <= 3) return http.Response('expired', 400);
+      return http.Response(_chatResponse('recovered-continuation'), 200);
+    }));
+    final chat = LiveChat(
+      id: const YoutubeId(handle: '@channel'),
+      interval: const Duration(milliseconds: 1),
+      minimumRetryDelay: Duration.zero,
+      rediscoverAfterFailures: 3,
+      randomDouble: () => 0.5,
+      client: transport,
+    );
+
+    await chat.start();
+    expect((await chat.messages.first).id, 'same-message');
+    chat.stop();
+
+    expect(chatRequests, greaterThanOrEqualTo(4));
+    expect(pageRequests, 2);
+  });
+
   test('can retry when loading the initial live page fails', () async {
     var pageRequests = 0;
     final transport = YoutubeHttpClient(client: MockClient((request) async {

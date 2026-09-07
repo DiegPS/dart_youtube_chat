@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:collection';
+import 'dart:math';
 
 import 'package:dart_youtube_chat/src/requests.dart';
 import 'package:dart_youtube_chat/src/types/data.dart';
@@ -11,12 +12,20 @@ class LiveChat {
     this._client,
     this._ownsClient,
     this._options,
+    this._minimumRetryDelay,
+    this._maximumRetryDelay,
+    this._rediscoverAfterFailures,
+    this._randomDouble,
   );
 
   factory LiveChat({
     required YoutubeId id,
     Duration? interval,
     YoutubeHttpClient? client,
+    Duration minimumRetryDelay = const Duration(seconds: 1),
+    Duration maximumRetryDelay = const Duration(seconds: 30),
+    int rediscoverAfterFailures = 3,
+    double Function()? randomDouble,
   }) {
     return LiveChat._(
       id,
@@ -24,6 +33,10 @@ class LiveChat {
       client ?? YoutubeHttpClient(),
       client == null,
       null,
+      minimumRetryDelay,
+      maximumRetryDelay,
+      rediscoverAfterFailures,
+      randomDouble ?? Random().nextDouble,
     );
   }
 
@@ -35,13 +48,22 @@ class LiveChat {
     required FetchOptions options,
     Duration? interval,
     YoutubeHttpClient? client,
+    YoutubeId id = const YoutubeId(),
+    Duration minimumRetryDelay = const Duration(seconds: 1),
+    Duration maximumRetryDelay = const Duration(seconds: 30),
+    int rediscoverAfterFailures = 3,
+    double Function()? randomDouble,
   }) {
     return LiveChat._(
-      const YoutubeId(),
+      id,
       interval,
       client ?? YoutubeHttpClient(),
       client == null,
       options,
+      minimumRetryDelay,
+      maximumRetryDelay,
+      rediscoverAfterFailures,
+      randomDouble ?? Random().nextDouble,
     );
   }
 
@@ -49,6 +71,10 @@ class LiveChat {
   final Duration? _interval;
   final YoutubeHttpClient _client;
   final bool _ownsClient;
+  final Duration _minimumRetryDelay;
+  final Duration _maximumRetryDelay;
+  final int _rediscoverAfterFailures;
+  final double Function() _randomDouble;
   final _msgController = StreamController<ChatItem>.broadcast();
   final _eventController = StreamController<LiveChatEvent>.broadcast();
   final _batchController = StreamController<LiveChatBatch>.broadcast();
@@ -63,6 +89,7 @@ class LiveChat {
   bool _startedOnce = false;
   bool _pollInFlight = false;
   bool _closed = false;
+  int _consecutiveFailures = 0;
 
   Stream<ChatItem> get messages => _msgController.stream;
   Stream<LiveChatEvent> get events => _eventController.stream;
@@ -128,9 +155,15 @@ class LiveChat {
     try {
       final batch = await _client.fetchChatBatch(options);
       if (!_running) return;
-      if (batch.continuation.isNotEmpty) {
-        _options = options.copyWith(continuation: batch.continuation);
+      if (batch.continuation.isEmpty) {
+        throw const YoutubeRequestException(
+          YoutubeRequestFailure.malformedResponse,
+          'fetchChat',
+          cause: FormatException('Live chat continuation is missing'),
+        );
       }
+      _options = options.copyWith(continuation: batch.continuation);
+      _consecutiveFailures = 0;
       nextDelay = _interval ?? batch.pollingInterval;
       if (!_pollController.isClosed) {
         _pollController.add(DateTime.now().toUtc());
@@ -146,10 +179,43 @@ class LiveChat {
       }
     } on Exception catch (error) {
       if (_running && !_errController.isClosed) _errController.add(error);
+      _consecutiveFailures++;
+      nextDelay = _retryDelay(_consecutiveFailures, error);
+      if (_canRediscover && _consecutiveFailures >= _rediscoverAfterFailures) {
+        try {
+          _options = await _client.fetchLivePage(_id);
+          _consecutiveFailures = 0;
+          nextDelay = Duration.zero;
+        } on Exception catch (rediscoveryError) {
+          if (_running && !_errController.isClosed) {
+            _errController.add(rediscoveryError);
+          }
+        }
+      }
     } finally {
       _pollInFlight = false;
       if (_running) _schedule(nextDelay);
     }
+  }
+
+  bool get _canRediscover =>
+      _id.channelId.isNotEmpty ||
+      _id.liveId.isNotEmpty ||
+      _id.handle.isNotEmpty;
+
+  Duration _retryDelay(int failures, Exception error) {
+    final exponential =
+        _minimumRetryDelay.inMilliseconds * pow(2, min(failures - 1, 10));
+    final capped = min(exponential.round(), _maximumRetryDelay.inMilliseconds);
+    var result = Duration(
+      milliseconds: (capped * (0.8 + _randomDouble() * 0.4)).round(),
+    );
+    if (error is YoutubeRequestException &&
+        (error.statusCode == 429 || error.statusCode == 403) &&
+        result < const Duration(seconds: 5)) {
+      result = const Duration(seconds: 5);
+    }
+    return result;
   }
 
   bool _remember(String id) {

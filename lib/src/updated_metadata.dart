@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:dart_youtube_chat/src/requests.dart';
 import 'package:dart_youtube_chat/src/types/data.dart';
@@ -11,18 +12,30 @@ class UpdatedMetadata {
     this._interval,
     this._client,
     this._ownsClient,
+    this._minimumRetryDelay,
+    this._maximumRetryDelay,
+    this._resetContinuationAfterFailures,
+    this._randomDouble,
   );
 
   factory UpdatedMetadata({
     required FetchOptions options,
     Duration? interval,
     YoutubeHttpClient? client,
+    Duration minimumRetryDelay = const Duration(seconds: 1),
+    Duration maximumRetryDelay = const Duration(seconds: 30),
+    int resetContinuationAfterFailures = 3,
+    double Function()? randomDouble,
   }) {
     return UpdatedMetadata._(
       options,
       interval,
       client ?? YoutubeHttpClient(),
       client == null,
+      minimumRetryDelay,
+      maximumRetryDelay,
+      resetContinuationAfterFailures,
+      randomDouble ?? Random().nextDouble,
     );
   }
 
@@ -30,6 +43,10 @@ class UpdatedMetadata {
   final Duration? _interval;
   final YoutubeHttpClient _client;
   final bool _ownsClient;
+  final Duration _minimumRetryDelay;
+  final Duration _maximumRetryDelay;
+  final int _resetContinuationAfterFailures;
+  final double Function() _randomDouble;
   final _batchController = StreamController<UpdatedMetadataBatch>.broadcast();
   final _stateController = StreamController<UpdatedMetadataState>.broadcast();
   final _errorController = StreamController<Exception>.broadcast();
@@ -42,6 +59,7 @@ class UpdatedMetadata {
   bool _pollInFlight = false;
   bool _closed = false;
   UpdatedMetadataState _state = const UpdatedMetadataState();
+  int _consecutiveFailures = 0;
 
   Stream<UpdatedMetadataBatch> get batches => _batchController.stream;
   Stream<UpdatedMetadataState> get states => _stateController.stream;
@@ -101,6 +119,7 @@ class UpdatedMetadata {
       if (batch.continuation.token.isNotEmpty) {
         _continuation = batch.continuation.token;
       }
+      _consecutiveFailures = 0;
       nextDelay = _interval ?? batch.pollingInterval;
       if (!_pollController.isClosed) {
         _pollController.add(DateTime.now().toUtc());
@@ -112,9 +131,23 @@ class UpdatedMetadata {
       if (_running && !_errorController.isClosed) {
         _errorController.add(error);
       }
+      _consecutiveFailures++;
+      nextDelay = _retryDelay(_consecutiveFailures);
+      if (_consecutiveFailures >= _resetContinuationAfterFailures) {
+        _continuation = '';
+      }
     } finally {
       _pollInFlight = false;
       if (_running) _schedule(nextDelay);
     }
+  }
+
+  Duration _retryDelay(int failures) {
+    final exponential =
+        _minimumRetryDelay.inMilliseconds * pow(2, min(failures - 1, 10));
+    final capped = min(exponential.round(), _maximumRetryDelay.inMilliseconds);
+    return Duration(
+      milliseconds: (capped * (0.8 + _randomDouble() * 0.4)).round(),
+    );
   }
 }

@@ -26,6 +26,8 @@ only as read-only data.
 - Resolves a live stream from a handle, channel ID, video ID, or supported URL.
 - One shared session for chat and metadata, with only one `/live` page request.
 - Serialized polling that follows each endpoint's continuation and interval.
+- Capped exponential retry backoff; repeated invalid chat continuations trigger
+  anonymous live-page rediscovery, while stale metadata tokens reset safely.
 - Message-ID deduplication with bounded memory.
 - Typed text, custom emoji, memberships, Super Chats, and paid stickers.
 - Typed deletion, banner, ticker, notice, poll, tooltip, and gift events.

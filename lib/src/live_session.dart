@@ -6,6 +6,8 @@ import 'package:dart_youtube_chat/src/types/data.dart';
 import 'package:dart_youtube_chat/src/types/updated_metadata.dart';
 import 'package:dart_youtube_chat/src/updated_metadata.dart';
 
+enum YoutubeLiveLifecycle { live, ended }
+
 /// Coordinates anonymous live chat and metadata from one resolved live page.
 class YoutubeLiveSession {
   YoutubeLiveSession({
@@ -37,6 +39,8 @@ class YoutubeLiveSession {
   final _metadataErrorController = StreamController<Exception>.broadcast();
   final _chatPollController = StreamController<DateTime>.broadcast();
   final _metadataPollController = StreamController<DateTime>.broadcast();
+  final _lifecycleController =
+      StreamController<YoutubeLiveLifecycle>.broadcast();
 
   final _subscriptions = <StreamSubscription<Object?>>[];
   LiveChat? _chat;
@@ -46,6 +50,7 @@ class YoutubeLiveSession {
   bool _starting = false;
   bool _startedOnce = false;
   bool _closed = false;
+  YoutubeLiveLifecycle? _lastLifecycle;
 
   Stream<ChatItem> get messages => _messageController.stream;
   Stream<LiveChatEvent> get events => _eventController.stream;
@@ -65,6 +70,7 @@ class YoutubeLiveSession {
   Stream<Exception> get metadataErrors => _metadataErrorController.stream;
   Stream<DateTime> get chatPolls => _chatPollController.stream;
   Stream<DateTime> get metadataPolls => _metadataPollController.stream;
+  Stream<YoutubeLiveLifecycle> get lifecycle => _lifecycleController.stream;
   String get liveId => _liveId;
   bool get isRunning => _running;
 
@@ -93,6 +99,7 @@ class YoutubeLiveSession {
     _liveId = options.liveId;
     final chat = LiveChat.fromOptions(
       options: options,
+      id: _id,
       interval: _chatInterval,
       client: _client,
     );
@@ -134,6 +141,7 @@ class YoutubeLiveSession {
     unawaited(_metadataErrorController.close());
     unawaited(_chatPollController.close());
     unawaited(_metadataPollController.close());
+    unawaited(_lifecycleController.close());
   }
 
   void _wire(LiveChat chat, UpdatedMetadata metadata) {
@@ -141,7 +149,21 @@ class YoutubeLiveSession {
     _listen(chat.events, _eventController);
     _listen(chat.batches, _chatBatchController);
     _listen(metadata.batches, _metadataBatchController);
-    _listen(metadata.states, _metadataStateController);
+    _subscriptions.add(metadata.states.listen((state) {
+      if (!_metadataStateController.isClosed) {
+        _metadataStateController.add(state);
+      }
+      final viewership = state.viewership;
+      if (viewership == null) return;
+      final lifecycle = viewership.isLive
+          ? YoutubeLiveLifecycle.live
+          : YoutubeLiveLifecycle.ended;
+      if (_lastLifecycle == lifecycle) return;
+      _lastLifecycle = lifecycle;
+      if (!_lifecycleController.isClosed) {
+        _lifecycleController.add(lifecycle);
+      }
+    }));
     _listenErrors(chat.errors, _chatErrorController);
     _listenErrors(metadata.errors, _metadataErrorController);
     _listen(chat.polls, _chatPollController);
