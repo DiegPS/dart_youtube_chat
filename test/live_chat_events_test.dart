@@ -83,6 +83,15 @@ void main() {
                 'header': {
                   'liveChatSponsorshipsHeaderRenderer': {
                     'authorName': {'simpleText': 'Gifter'},
+                    'authorPhoto': {
+                      'thumbnails': [
+                        {
+                          'url': '//lh3.googleusercontent.com/gifter',
+                          'width': 64,
+                          'height': 64,
+                        },
+                      ],
+                    },
                     'primaryText': {
                       'runs': [
                         {'text': 'Gifted 5 memberships'},
@@ -113,6 +122,12 @@ void main() {
       expect(batch.events[0].kind, LiveChatEventKind.membershipGiftPurchased);
       expect(batch.events[0].giftMembershipCount, 5);
       expect(batch.events[0].authorChannelId, 'gifter-channel');
+      expect(batch.events[0].authorName, 'Gifter');
+      expect(batch.events[0].authorThumbnail?.url, startsWith('https://'));
+      expect(
+        batch.events[0].timestamp,
+        DateTime.fromMicrosecondsSinceEpoch(1700000000000000),
+      );
       expect(batch.events[0].text, 'Gifted 5 memberships');
       expect(batch.events[1].kind, LiveChatEventKind.membershipGiftReceived);
       expect(batch.events[1].authorChannelId, 'recipient-channel');
@@ -204,7 +219,11 @@ void main() {
                       'timestampUsec': 123,
                       'authorName': 'not-a-map',
                       'authorPhoto': {
-                        'thumbnails': [null, 'bad', {'url': 42}],
+                        'thumbnails': [
+                          null,
+                          'bad',
+                          {'url': 42}
+                        ],
                       },
                       'authorBadges': [null, 'bad'],
                       'message': {
@@ -233,7 +252,8 @@ void main() {
       final batch = parseChatBatch(GetLiveChatResponse.fromJson(json));
 
       expect(batch.messages.single.id, 'tolerant-message');
-      expect(batch.messages.single.message.single.emoji?.isCustomEmoji, isFalse);
+      expect(
+          batch.messages.single.message.single.emoji?.isCustomEmoji, isFalse);
       expect(batch.events, hasLength(2));
       expect(batch.events.last.kind, LiveChatEventKind.unknown);
       expect(batch.events.last.rendererType, 'futureRenderer');

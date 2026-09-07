@@ -81,6 +81,8 @@ void main() {
     );
     final messagesDone = expectLater(session.messages, emitsDone);
     final metadataDone = expectLater(session.metadataStates, emitsDone);
+    final chatErrorsDone = expectLater(session.chatErrors, emitsDone);
+    final metadataErrorsDone = expectLater(session.metadataErrors, emitsDone);
 
     await session.start();
     session.stop();
@@ -88,7 +90,38 @@ void main() {
 
     await messagesDone;
     await metadataDone;
+    await chatErrorsDone;
+    await metadataErrorsDone;
     expect(session.isRunning, isFalse);
+  });
+
+  test('keeps chat and metadata errors on independent streams', () async {
+    final client = YoutubeHttpClient(client: MockClient((request) async {
+      if (request.method == 'GET') return http.Response(_livePage, 200);
+      if (request.url.path.endsWith('/updated_metadata')) {
+        return http.Response('metadata unavailable', 503);
+      }
+      return http.Response(_chatResponse, 200);
+    }));
+    final session = YoutubeLiveSession(
+      id: const YoutubeId(handle: '@channel'),
+      chatInterval: const Duration(minutes: 1),
+      metadataInterval: const Duration(minutes: 1),
+      client: client,
+    );
+    addTearDown(session.stop);
+    final message = session.messages.first;
+    final metadataError = session.metadataErrors.first;
+    final combinedError = session.errors.first;
+    var chatErrorCount = 0;
+    session.chatErrors.listen((_) => chatErrorCount++);
+
+    await session.start();
+
+    expect((await message).id, 'message-1');
+    expect(await metadataError, isA<Exception>());
+    expect(await combinedError, isA<Exception>());
+    expect(chatErrorCount, 0);
   });
 }
 

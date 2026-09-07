@@ -82,15 +82,18 @@ session.metadataStates.listen((state) {
   print('Title: ${state.title?.text}');
 });
 
-session.errors.listen(print);
+session.chatErrors.listen((error) => print('Chat error: $error'));
+session.metadataErrors.listen((error) => print('Metadata error: $error'));
 await session.start();
 session.stop();
 ```
 
 The session exposes `messages`, `events`, `chatBatches`, `metadataBatches`,
-`metadataStates`, `errors`, `chatPolls`, and `metadataPolls`. `stop()` is
-idempotent. A stopped session cannot be restarted; create a new session for a
-new connection.
+`metadataStates`, `chatErrors`, `metadataErrors`, `errors`, `chatPolls`, and
+`metadataPolls`. The combined `errors` stream is convenient for diagnostics;
+the source-specific streams let an application keep chat connected when only a
+metadata refresh fails. `stop()` is idempotent. A stopped session cannot be
+restarted; create a new session for a new connection.
 
 ## Identifiers and URLs
 
@@ -107,6 +110,9 @@ YoutubeId.tryParse('https://www.youtube.com/watch?v=dQw4w9WgXcQ');
 
 Only recognized YouTube hosts are accepted. A foreign URL containing a `v`
 query parameter is rejected.
+
+Use `YoutubeId.tryParseVideoUrl` when a workflow specifically requires an
+explicit video/live URL rather than a handle, channel URL, or bare video ID.
 
 ## Chat data and images
 
@@ -144,8 +150,8 @@ Known commands receive a `LiveChatEventKind` and typed target fields:
 | `bannerAdded`, `bannerRemoved` | `id`, `targetActionId`, `text` |
 | `tickerAdded`, `tickerRemoved` | `id`, `targetItemId`, `duration` |
 | `viewerNotice` | `id`, `text`, `buttons`, `menuActions` |
-| `membershipGiftPurchased` | `id`, `authorChannelId`, `giftMembershipCount`, `text` |
-| `membershipGiftReceived` | `id`, `authorChannelId`, `text` |
+| `membershipGiftPurchased` | `id`, `authorChannelId`, `authorName`, `authorThumbnail`, `timestamp`, `giftMembershipCount`, `text` |
+| `membershipGiftReceived` | `id`, `authorChannelId`, `authorName`, `authorThumbnail`, `timestamp`, `text` |
 | `pollUpdated`, `tooltip` | `id`, `text` |
 | `unknown` | `actionType`, `rendererType`, `raw` |
 

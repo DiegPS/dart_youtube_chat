@@ -60,6 +60,20 @@ class YoutubeId {
     return null;
   }
 
+  /// Parses an explicit YouTube video URL, or returns `null`.
+  ///
+  /// Unlike [tryParse], this rejects bare video IDs, handles, and channel URLs.
+  static YoutubeId? tryParseVideoUrl(String value) {
+    final uri = Uri.tryParse(value.trim());
+    if (uri == null ||
+        (uri.scheme != 'https' && uri.scheme != 'http') ||
+        !_youtubeHosts.contains(uri.host)) {
+      return null;
+    }
+    final parsed = tryParse(value);
+    return parsed?.liveId.isNotEmpty == true ? parsed : null;
+  }
+
   static final _handlePattern = RegExp(r'^@[A-Za-z0-9._-]{3,30}$');
   static final _channelIdPattern = RegExp(r'^UC[A-Za-z0-9_-]{22}$');
   static final _videoIdPattern = RegExp(r'^[A-Za-z0-9_-]{11}$');
@@ -299,6 +313,9 @@ class LiveChatEvent {
   final String targetItemId;
   final String targetActionId;
   final String authorChannelId;
+  final String authorName;
+  final ImageItem? authorThumbnail;
+  final DateTime? timestamp;
   final int giftMembershipCount;
   final Duration duration;
   final List<LiveChatAction> buttons;
@@ -314,6 +331,9 @@ class LiveChatEvent {
     this.targetItemId = '',
     this.targetActionId = '',
     this.authorChannelId = '',
+    this.authorName = '',
+    this.authorThumbnail,
+    this.timestamp,
     this.giftMembershipCount = 0,
     this.duration = Duration.zero,
     this.buttons = const [],

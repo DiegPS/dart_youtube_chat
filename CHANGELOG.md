@@ -1,3 +1,10 @@
+## 0.5.0
+
+- Separate live-session chat errors from metadata refresh errors while keeping
+  the backwards-compatible combined error stream.
+- Expose author name, avatar variants, and timestamp on gifted-membership
+  events so consumers can render them without reparsing raw payloads.
+
 ## 0.4.0
 
 - Add typed deletion, banner, ticker, notice, poll, tooltip, and gifted

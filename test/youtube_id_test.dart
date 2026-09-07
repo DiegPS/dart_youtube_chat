@@ -35,5 +35,29 @@ void main() {
     test('parse throws a FormatException for invalid input', () {
       expect(() => YoutubeId.parse('invalid input'), throwsFormatException);
     });
+
+    test('tryParseVideoUrl accepts only explicit video URLs', () {
+      expect(
+        YoutubeId.tryParseVideoUrl(
+          'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+        )?.liveId,
+        'dQw4w9WgXcQ',
+      );
+      expect(
+        YoutubeId.tryParseVideoUrl('https://youtu.be/dQw4w9WgXcQ')?.liveId,
+        'dQw4w9WgXcQ',
+      );
+      expect(YoutubeId.tryParseVideoUrl('dQw4w9WgXcQ'), isNull);
+      expect(
+        YoutubeId.tryParseVideoUrl('https://youtube.com/@channel'),
+        isNull,
+      );
+      expect(
+        YoutubeId.tryParseVideoUrl(
+          'https://example.com/watch?v=dQw4w9WgXcQ',
+        ),
+        isNull,
+      );
+    });
   });
 }

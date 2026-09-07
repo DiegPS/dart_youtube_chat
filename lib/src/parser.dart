@@ -270,6 +270,7 @@ String _plainText(List<MessageRun> runs) => runs
 LiveChatEvent _parseEvent(Action action) {
   final renderer = _findRenderer(action.raw);
   final rendererId = _findString(action.raw, 'id');
+  final authorName = _findTextForKey(action.raw, 'authorName');
   return LiveChatEvent(
     kind: _eventKind(action.actionType, renderer?.$1 ?? ''),
     actionType: action.actionType,
@@ -283,6 +284,13 @@ LiveChatEvent _parseEvent(Action action) {
     authorChannelId: _findString(action.raw, 'externalChannelId').isNotEmpty
         ? _findString(action.raw, 'externalChannelId')
         : _findString(action.raw, 'authorExternalChannelId'),
+    authorName: authorName,
+    authorThumbnail: _findImageForKey(
+      action.raw,
+      'authorPhoto',
+      authorName,
+    ),
+    timestamp: _parseTimestamp(_findString(action.raw, 'timestampUsec')),
     giftMembershipCount: _findInteger(action.raw, 'giftMembershipsCount'),
     duration: Duration(
       seconds: _findInteger(action.raw, 'durationSec'),
@@ -298,6 +306,71 @@ LiveChatEvent _parseEvent(Action action) {
     }),
     raw: action.raw,
   );
+}
+
+DateTime? _parseTimestamp(String value) {
+  final microseconds = int.tryParse(value);
+  return microseconds == null
+      ? null
+      : DateTime.fromMicrosecondsSinceEpoch(microseconds);
+}
+
+String _findTextForKey(Object? value, String key) {
+  if (value is Map<String, dynamic>) {
+    if (value.containsKey(key)) return _textValue(value[key]);
+    for (final child in value.values) {
+      final result = _findTextForKey(child, key);
+      if (result.isNotEmpty) return result;
+    }
+  } else if (value is List) {
+    for (final child in value) {
+      final result = _findTextForKey(child, key);
+      if (result.isNotEmpty) return result;
+    }
+  }
+  return '';
+}
+
+ImageItem? _findImageForKey(Object? value, String key, String alt) {
+  if (value is Map<String, dynamic>) {
+    final candidate = value[key];
+    if (candidate is Map<String, dynamic>) {
+      final thumbnails = candidate['thumbnails'];
+      if (thumbnails is List) {
+        final variants = thumbnails
+            .whereType<Map<String, dynamic>>()
+            .map((thumbnail) => ImageVariant(
+                  url: normalizeYoutubeImageUrl(
+                    thumbnail['url'] as String? ?? '',
+                  ),
+                  width: (thumbnail['width'] as num?)?.toInt() ?? 0,
+                  height: (thumbnail['height'] as num?)?.toInt() ?? 0,
+                ))
+            .where((thumbnail) => thumbnail.url.isNotEmpty)
+            .toList(growable: false);
+        if (variants.isNotEmpty) {
+          final selected = variants.last;
+          return ImageItem(
+            url: selected.url,
+            alt: alt,
+            width: selected.width,
+            height: selected.height,
+            variants: variants,
+          );
+        }
+      }
+    }
+    for (final child in value.values) {
+      final result = _findImageForKey(child, key, alt);
+      if (result != null) return result;
+    }
+  } else if (value is List) {
+    for (final child in value) {
+      final result = _findImageForKey(child, key, alt);
+      if (result != null) return result;
+    }
+  }
+  return null;
 }
 
 LiveChatEventKind _eventKind(String actionType, String rendererType) {

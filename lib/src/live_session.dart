@@ -33,6 +33,8 @@ class YoutubeLiveSession {
   final _metadataStateController =
       StreamController<UpdatedMetadataState>.broadcast();
   final _errorController = StreamController<Exception>.broadcast();
+  final _chatErrorController = StreamController<Exception>.broadcast();
+  final _metadataErrorController = StreamController<Exception>.broadcast();
   final _chatPollController = StreamController<DateTime>.broadcast();
   final _metadataPollController = StreamController<DateTime>.broadcast();
 
@@ -52,7 +54,15 @@ class YoutubeLiveSession {
       _metadataBatchController.stream;
   Stream<UpdatedMetadataState> get metadataStates =>
       _metadataStateController.stream;
+
+  /// All chat and metadata errors, retained for backwards compatibility.
   Stream<Exception> get errors => _errorController.stream;
+
+  /// Errors emitted by `get_live_chat` polling only.
+  Stream<Exception> get chatErrors => _chatErrorController.stream;
+
+  /// Errors emitted by `updated_metadata` polling only.
+  Stream<Exception> get metadataErrors => _metadataErrorController.stream;
   Stream<DateTime> get chatPolls => _chatPollController.stream;
   Stream<DateTime> get metadataPolls => _metadataPollController.stream;
   String get liveId => _liveId;
@@ -120,6 +130,8 @@ class YoutubeLiveSession {
     unawaited(_metadataBatchController.close());
     unawaited(_metadataStateController.close());
     unawaited(_errorController.close());
+    unawaited(_chatErrorController.close());
+    unawaited(_metadataErrorController.close());
     unawaited(_chatPollController.close());
     unawaited(_metadataPollController.close());
   }
@@ -130,8 +142,8 @@ class YoutubeLiveSession {
     _listen(chat.batches, _chatBatchController);
     _listen(metadata.batches, _metadataBatchController);
     _listen(metadata.states, _metadataStateController);
-    _listen(chat.errors, _errorController);
-    _listen(metadata.errors, _errorController);
+    _listenErrors(chat.errors, _chatErrorController);
+    _listenErrors(metadata.errors, _metadataErrorController);
     _listen(chat.polls, _chatPollController);
     _listen(metadata.polls, _metadataPollController);
   }
@@ -139,6 +151,16 @@ class YoutubeLiveSession {
   void _listen<T>(Stream<T> stream, StreamController<T> controller) {
     _subscriptions.add(stream.listen((value) {
       if (!controller.isClosed) controller.add(value);
+    }));
+  }
+
+  void _listenErrors(
+    Stream<Exception> stream,
+    StreamController<Exception> sourceController,
+  ) {
+    _subscriptions.add(stream.listen((error) {
+      if (!sourceController.isClosed) sourceController.add(error);
+      if (!_errorController.isClosed) _errorController.add(error);
     }));
   }
 }
