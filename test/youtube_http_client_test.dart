@@ -33,6 +33,36 @@ void main() {
     expect(result.liveId, 'live-id');
   });
 
+  test('applies a configurable locale to page and endpoint requests', () async {
+    var requests = 0;
+    final client = YoutubeHttpClient(
+      context: const YoutubeClientContext(
+        languageCode: 'es',
+        regionCode: 'MX',
+        userAgent: 'test-agent',
+      ),
+      client: MockClient((request) async {
+        requests++;
+        if (request.method == 'GET') {
+          expect(request.url.queryParameters, containsPair('hl', 'es'));
+          expect(request.url.queryParameters, containsPair('gl', 'MX'));
+          expect(request.headers['user-agent'], 'test-agent');
+          return http.Response(_livePage, 200);
+        }
+        final body = jsonDecode(request.body) as Map<String, dynamic>;
+        final context = body['context'] as Map<String, dynamic>;
+        expect(context['client'], containsPair('hl', 'es'));
+        expect(context['client'], containsPair('gl', 'MX'));
+        return http.Response(_emptyResponse('next', 1000), 200);
+      }),
+    );
+
+    final resolved =
+        await client.fetchLivePage(const YoutubeId(handle: '@channel'));
+    await client.fetchChatBatch(resolved);
+    expect(requests, 2);
+  });
+
   test('uses injected HTTP client and returns typed polling data', () async {
     final client = YoutubeHttpClient(client: MockClient((request) async {
       expect(request.method, 'POST');

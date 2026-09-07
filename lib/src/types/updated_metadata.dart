@@ -71,6 +71,49 @@ class UpdatedMetadataBatch {
   Map<String, dynamic> toJson() => raw;
 }
 
+/// Accumulated snapshot produced from incremental metadata batches.
+///
+/// YouTube commonly sends title and description only once, then emits sparse
+/// viewership or like-count updates. Applying a batch retains earlier values
+/// unless the batch explicitly replaces them.
+class UpdatedMetadataState {
+  final UpdatedMetadataViewership? viewership;
+  final UpdatedMetadataText? dateText;
+  final UpdatedMetadataText? title;
+  final UpdatedMetadataText? description;
+  final UpdatedMetadataLikeCountEntity? likeCount;
+  final UpdatedMetadataBatch? lastBatch;
+
+  const UpdatedMetadataState({
+    this.viewership,
+    this.dateText,
+    this.title,
+    this.description,
+    this.likeCount,
+    this.lastBatch,
+  });
+
+  /// Returns a snapshot containing all values supplied by [batch].
+  UpdatedMetadataState apply(UpdatedMetadataBatch batch) {
+    UpdatedMetadataLikeCountEntity? nextLikeCount;
+    final mutations = batch.frameworkUpdates.entityBatchUpdate?.mutations ??
+        const <UpdatedMetadataEntityMutation>[];
+    for (final mutation in mutations) {
+      if (mutation.likeCountEntity != null) {
+        nextLikeCount = mutation.likeCountEntity;
+      }
+    }
+    return UpdatedMetadataState(
+      viewership: batch.viewership ?? viewership,
+      dateText: batch.dateText ?? dateText,
+      title: batch.title ?? title,
+      description: batch.description ?? description,
+      likeCount: nextLikeCount ?? likeCount,
+      lastBatch: batch,
+    );
+  }
+}
+
 class UpdatedMetadataResponseContext {
   final String visitorData;
   final List<UpdatedMetadataServiceTrackingParams> serviceTrackingParams;

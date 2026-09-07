@@ -5,7 +5,13 @@ import 'package:dart_youtube_chat/src/requests.dart';
 import 'package:dart_youtube_chat/src/types/data.dart';
 
 class LiveChat {
-  LiveChat._(this._id, this._interval, this._client, this._ownsClient);
+  LiveChat._(
+    this._id,
+    this._interval,
+    this._client,
+    this._ownsClient,
+    this._options,
+  );
 
   factory LiveChat({
     required YoutubeId id,
@@ -17,6 +23,25 @@ class LiveChat {
       interval,
       client ?? YoutubeHttpClient(),
       client == null,
+      null,
+    );
+  }
+
+  /// Creates a chat from options already resolved from the live page.
+  ///
+  /// This avoids downloading the same page again when chat and metadata share
+  /// one [FetchOptions] instance.
+  factory LiveChat.fromOptions({
+    required FetchOptions options,
+    Duration? interval,
+    YoutubeHttpClient? client,
+  }) {
+    return LiveChat._(
+      const YoutubeId(),
+      interval,
+      client ?? YoutubeHttpClient(),
+      client == null,
+      options,
     );
   }
 
@@ -53,15 +78,20 @@ class LiveChat {
     if (_startedOnce) {
       throw StateError('A stopped LiveChat cannot be restarted');
     }
-    if (_id.channelId.isEmpty && _id.liveId.isEmpty && _id.handle.isEmpty) {
+    if (_options == null &&
+        _id.channelId.isEmpty &&
+        _id.liveId.isEmpty &&
+        _id.handle.isEmpty) {
       throw ArgumentError('YoutubeId must have channelId, liveId, or handle');
     }
     _startedOnce = true;
-    try {
-      _options = await _client.fetchLivePage(_id);
-    } catch (_) {
-      if (!_closed) _startedOnce = false;
-      rethrow;
+    if (_options == null) {
+      try {
+        _options = await _client.fetchLivePage(_id);
+      } catch (_) {
+        if (!_closed) _startedOnce = false;
+        rethrow;
+      }
     }
     if (_closed) {
       throw StateError('LiveChat was stopped while starting');

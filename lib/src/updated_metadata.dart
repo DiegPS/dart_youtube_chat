@@ -31,6 +31,7 @@ class UpdatedMetadata {
   final YoutubeHttpClient _client;
   final bool _ownsClient;
   final _batchController = StreamController<UpdatedMetadataBatch>.broadcast();
+  final _stateController = StreamController<UpdatedMetadataState>.broadcast();
   final _errorController = StreamController<Exception>.broadcast();
   final _pollController = StreamController<DateTime>.broadcast();
 
@@ -40,12 +41,15 @@ class UpdatedMetadata {
   bool _startedOnce = false;
   bool _pollInFlight = false;
   bool _closed = false;
+  UpdatedMetadataState _state = const UpdatedMetadataState();
 
   Stream<UpdatedMetadataBatch> get batches => _batchController.stream;
+  Stream<UpdatedMetadataState> get states => _stateController.stream;
   Stream<Exception> get errors => _errorController.stream;
   Stream<DateTime> get polls => _pollController.stream;
   bool get isRunning => _running;
   String get continuation => _continuation;
+  UpdatedMetadataState get currentState => _state;
 
   void start() {
     if (_closed) throw StateError('UpdatedMetadata is closed');
@@ -73,6 +77,7 @@ class UpdatedMetadata {
     _timer = null;
     if (_ownsClient) _client.close();
     unawaited(_batchController.close());
+    unawaited(_stateController.close());
     unawaited(_errorController.close());
     unawaited(_pollController.close());
   }
@@ -101,6 +106,8 @@ class UpdatedMetadata {
         _pollController.add(DateTime.now().toUtc());
       }
       if (!_batchController.isClosed) _batchController.add(batch);
+      _state = _state.apply(batch);
+      if (!_stateController.isClosed) _stateController.add(_state);
     } on Exception catch (error) {
       if (_running && !_errorController.isClosed) {
         _errorController.add(error);

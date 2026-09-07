@@ -25,10 +25,10 @@ void main() {
       expect(request.url.queryParameters['key'], 'test-key');
       final body = jsonDecode(request.body) as Map<String, dynamic>;
       expect(body['videoId'], 'live-id');
-      expect((body['context'] as Map)['client'], {
-        'clientVersion': 'test-version',
-        'clientName': 'WEB',
-      });
+      expect((body['context'] as Map)['client'],
+          containsPair('clientVersion', 'test-version'));
+      expect((body['context'] as Map)['client'],
+          containsPair('clientName', 'WEB'));
       expect(body['continuation'], requestNumber == 1 ? isNull : 'next-token');
       return http.Response(
         jsonEncode(updatedMetadataFixture(continuation: 'next-token')),
@@ -128,6 +128,54 @@ void main() {
     expect(continuations, [null, 'token-1', 'token-2']);
     expect(maximumActiveRequests, 1);
     expect(metadata.isRunning, isFalse);
+  });
+
+  test('UpdatedMetadata emits accumulated states after each sparse batch',
+      () async {
+    var requestNumber = 0;
+    final client = YoutubeHttpClient(client: MockClient((_) async {
+      requestNumber++;
+      return http.Response(
+        jsonEncode({
+          'continuation': {
+            'timedContinuationData': {
+              'continuation': 'token-$requestNumber',
+              'timeoutMs': 1,
+            },
+          },
+          'actions': [
+            if (requestNumber == 1)
+              {
+                'updateTitleAction': {
+                  'title': {'simpleText': 'Persistent title'},
+                },
+              }
+            else
+              {
+                'updateViewershipAction': {
+                  'viewCount': {
+                    'videoViewCountRenderer': {
+                      'originalViewCount': '321',
+                      'isLive': true,
+                    },
+                  },
+                },
+              },
+          ],
+        }),
+        200,
+      );
+    }));
+    final metadata = UpdatedMetadata(options: options, client: client);
+
+    final states = metadata.states.take(2).toList();
+    metadata.start();
+    final received = await states.timeout(const Duration(seconds: 2));
+    metadata.stop();
+
+    expect(received.last.title?.text, 'Persistent title');
+    expect(received.last.viewership?.originalViewCountValue, 321);
+    expect(metadata.currentState, same(received.last));
   });
 
   test('UpdatedMetadata reports transient errors and then recovers', () async {

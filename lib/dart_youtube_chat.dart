@@ -3,6 +3,7 @@
 library dart_youtube_chat;
 
 export 'src/live_chat.dart' show LiveChat;
+export 'src/live_session.dart' show YoutubeLiveSession;
 export 'src/updated_metadata.dart' show UpdatedMetadata;
 export 'src/parser.dart'
     show
@@ -29,8 +30,11 @@ export 'src/types/data.dart'
         ImageItem,
         ImageVariant,
         LiveChatBatch,
+        LiveChatAction,
         LiveChatEvent,
+        LiveChatEventKind,
         MessageItem,
         SuperChat,
+        YoutubeClientContext,
         YoutubeId;
 export 'src/types/updated_metadata.dart';

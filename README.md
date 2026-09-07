@@ -1,101 +1,245 @@
 # dart_youtube_chat
 
-Anonymous, dependency-injectable YouTube live-chat client for Dart. It resolves
-a live stream from a channel ID, video ID, or handle and polls YouTube's public
-InnerTube chat response without OAuth.
+Anonymous, dependency-injectable YouTube live-chat and live-metadata client for
+Dart. It uses the same logged-out InnerTube responses available to a browser;
+OAuth, cookies, API-console credentials, and a YouTube account are not required.
 
-## Features
+> InnerTube is undocumented and may change without notice. This package keeps
+> unknown payloads intact and treats polling errors as recoverable, but callers
+> should still surface connection health to users.
 
-- Serialized polling that follows YouTube's requested interval.
-- Message-ID deduplication and non-fatal error streams.
-- Text, emoji, memberships, paid messages, and paid stickers.
-- Every image variant with dimensions and normalized HTTPS URLs.
-- Multiple author badges.
-- Secondary banner, ticker, notice, and unknown events with their raw payload.
-- Complete live metadata updates, including viewership and like-count entities.
-- Injectable `http.Client`, request timeouts, and typed failures.
+## Scope
 
-## Usage
+The package intentionally consumes only two InnerTube endpoints:
 
-```dart
-final chat = LiveChat(
-  id: const YoutubeId(handle: '@channel'),
-);
+| Endpoint | Purpose |
+| --- | --- |
+| `live_chat/get_live_chat` | Messages, authors, emoji, badges, purchases, memberships, moderation events, banners, notices, tickers, and continuations. |
+| `updated_metadata` | Viewership, live state, title, date, description, like-count entities, and continuations. |
 
-chat.messages.listen((message) {
-  print('${message.author.name}: ${message.message.length} parts');
-});
-chat.events.listen((event) {
-  print('${event.actionType}/${event.rendererType}');
-});
-chat.errors.listen(print);
+It does not sign users in, send messages, vote, purchase, or execute moderation
+commands. Buttons, menus, tracking values, and endpoint parameters are exposed
+only as read-only data.
 
-await chat.start();
-// Later:
-chat.stop();
+## Highlights
+
+- Resolves a live stream from a handle, channel ID, video ID, or supported URL.
+- One shared session for chat and metadata, with only one `/live` page request.
+- Serialized polling that follows each endpoint's continuation and interval.
+- Message-ID deduplication with bounded memory.
+- Typed text, custom emoji, memberships, Super Chats, and paid stickers.
+- Typed deletion, banner, ticker, notice, poll, tooltip, and gift events.
+- Full image variant lists, dimensions, HTTPS normalization, and size selection.
+- Incremental metadata batches plus an accumulated metadata snapshot.
+- Lossless `raw` payloads for known and future response fields.
+- Injectable `http.Client`, locale, timeout, and typed request failures.
+- Non-fatal error streams and idempotent resource cleanup.
+
+## Install
+
+```yaml
+dependencies:
+  dart_youtube_chat: ^0.4.0
 ```
 
-For a single request or deterministic tests, inject a client:
+```sh
+dart pub get
+```
+
+## Recommended usage: one live session
+
+`YoutubeLiveSession` resolves the live page once and then drives chat and
+metadata independently. Subscribe before `start()` so the first poll cannot be
+missed.
+
+```dart
+import 'package:dart_youtube_chat/dart_youtube_chat.dart';
+
+final session = YoutubeLiveSession(
+  id: YoutubeId.parse('https://youtube.com/@channel/live'),
+);
+
+session.messages.listen((message) {
+  final text = message.message.map((part) {
+    return part.isEmoji ? part.emoji!.emojiText : part.text;
+  }).join();
+  print('${message.author.name}: $text');
+});
+
+session.events.listen((event) {
+  switch (event.kind) {
+    case LiveChatEventKind.messageDeleted:
+      print('Deleted: ${event.targetItemId}');
+    case LiveChatEventKind.authorMessagesDeleted:
+      print('Author cleared: ${event.authorChannelId}');
+    default:
+      print('${event.actionType}/${event.rendererType}');
+  }
+});
+
+session.metadataStates.listen((state) {
+  print('Viewers: ${state.viewership?.originalViewCountValue}');
+  print('Title: ${state.title?.text}');
+});
+
+session.errors.listen(print);
+await session.start();
+session.stop();
+```
+
+The session exposes `messages`, `events`, `chatBatches`, `metadataBatches`,
+`metadataStates`, `errors`, `chatPolls`, and `metadataPolls`. `stop()` is
+idempotent. A stopped session cannot be restarted; create a new session for a
+new connection.
+
+## Identifiers and URLs
+
+Use `YoutubeId.tryParse` for user input and `YoutubeId.parse` when invalid input
+should throw a `FormatException`.
+
+```dart
+YoutubeId.tryParse('@channel');
+YoutubeId.tryParse('UCxxxxxxxxxxxxxxxxxxxxxx');
+YoutubeId.tryParse('dQw4w9WgXcQ');
+YoutubeId.tryParse('https://youtu.be/dQw4w9WgXcQ');
+YoutubeId.tryParse('https://www.youtube.com/watch?v=dQw4w9WgXcQ');
+```
+
+Only recognized YouTube hosts are accepted. A foreign URL containing a `v`
+query parameter is rejected.
+
+## Chat data and images
+
+`ChatItem` contains the message ID, renderer kind, microsecond timestamp,
+author channel ID, author name and photo variants, all membership badges, role
+flags, structured text/emoji parts, purchase data, and the complete renderer in
+`raw`.
+
+Choose an image based on its actual display size instead of downloading the
+largest thumbnail:
+
+```dart
+final avatar = message.author.thumbnail?.bestFor(32, pixelRatio: 2);
+final emoji = message.message
+    .where((part) => part.isEmoji)
+    .first
+    .emoji!
+    .bestFor(18, pixelRatio: 2);
+```
+
+`Author.allBadges` provides the complete visual badge list while preserving the
+legacy single `badge` field. Image URLs from YouTube CDN hosts are normalized to
+HTTPS.
+
+## Events
+
+Anything that is not a normal display message is emitted through `events`.
+Known commands receive a `LiveChatEventKind` and typed target fields:
+
+| Kind | Useful fields |
+| --- | --- |
+| `messageDeleted` | `targetItemId`, `text` |
+| `authorMessagesDeleted` | `authorChannelId` |
+| `chatItemReplaced` | `targetItemId` |
+| `bannerAdded`, `bannerRemoved` | `id`, `targetActionId`, `text` |
+| `tickerAdded`, `tickerRemoved` | `id`, `targetItemId`, `duration` |
+| `viewerNotice` | `id`, `text`, `buttons`, `menuActions` |
+| `membershipGiftPurchased` | `id`, `authorChannelId`, `giftMembershipCount`, `text` |
+| `membershipGiftReceived` | `id`, `authorChannelId`, `text` |
+| `pollUpdated`, `tooltip` | `id`, `text` |
+| `unknown` | `actionType`, `rendererType`, `raw` |
+
+`buttons` and `menuActions` are `LiveChatAction` values. They retain labels,
+icons, accessibility text, endpoint names, and raw parameters, but the package
+never executes them. Normal `ChatItem` values expose the same read-only lists.
+
+## Live metadata
+
+YouTube sends metadata incrementally. A first batch often contains title, date,
+description, viewership, and likes; later batches may contain only viewership.
+Use `metadataBatches` when every source delta matters and `metadataStates` for a
+ready-to-display accumulated snapshot.
+
+```dart
+session.metadataBatches.listen((batch) {
+  print(batch.actions.map((action) => action.actionName));
+});
+
+session.metadataStates.listen((state) {
+  print(state.viewership?.isLive);
+  print(state.viewership?.originalViewCountValue);
+  print(state.likeCount?.likeCountIfIndifferentNumber);
+});
+```
+
+Every metadata model implements `toJson()` by returning its preserved source
+shape. Unknown actions remain available with
+`UpdatedMetadataActionType.unknown`.
+
+## Low-level requests and separate pollers
+
+For one-shot requests or deterministic tests, inject an HTTP client:
 
 ```dart
 final youtube = YoutubeHttpClient(
   client: myHttpClient,
   requestTimeout: const Duration(seconds: 10),
+  context: const YoutubeClientContext(
+    languageCode: 'es',
+    regionCode: 'MX',
+  ),
 );
-final options = await youtube.fetchLivePage(
-  const YoutubeId(liveId: 'video-id'),
-);
-final batch = await youtube.fetchChatBatch(options);
+
+final options = await youtube.fetchLivePage(YoutubeId.parse('@channel'));
+final chatBatch = await youtube.fetchChatBatch(options);
+final metadataBatch = await youtube.fetchUpdatedMetadata(options);
 youtube.close();
 ```
 
-## Updated live metadata
+`LiveChat` and `UpdatedMetadata` remain available as separate pollers.
+`LiveChat.fromOptions` accepts already-resolved `FetchOptions` to avoid another
+live-page request.
 
-Fetch one anonymous metadata update with the same options resolved from the
-live page:
+## Errors and lifecycle
 
-```dart
-final youtube = YoutubeHttpClient();
-final options = await youtube.fetchLivePage(
-  const YoutubeId(handle: '@channel'),
-);
-final update = await youtube.fetchUpdatedMetadata(options);
+Network operations throw `YoutubeRequestException` with one of `network`,
+`timeout`, `http` (with `statusCode`), or `malformedResponse`. Response bodies,
+API keys, continuation values, and user content are not placed in exception
+strings. Pollers emit transient failures on `errors` and continue using a safe
+delay. Initial live-page resolution fails `start()` so the caller can retry or
+show a connection error.
 
-print(update.viewership?.originalViewCountValue);
-print(update.viewership?.isLive);
-print(update.title?.text);
-youtube.close();
-```
+When an external `http.Client` or `YoutubeHttpClient` is injected, ownership
+stays with the caller. Internally created clients are closed by the owning
+session or poller.
 
-Or follow YouTube's continuation token and recommended polling interval:
+## Forward compatibility and privacy
 
-```dart
-final metadata = UpdatedMetadata(options: options);
-metadata.batches.listen((update) {
-  print(update.viewership?.originalViewCountValue);
-});
-metadata.errors.listen(print);
-metadata.start();
-// Later:
-metadata.stop();
-```
+Malformed list entries are skipped instead of invalidating a complete batch.
+Unknown renderers become `LiveChatEventKind.unknown`; the full chat response is
+available through `LiveChatBatch.raw`/`toJson()`. Metadata batches follow the
+same lossless strategy.
 
-Metadata responses are incremental: title, date, and description may appear in
-the first batch while later batches contain only viewership changes. Every
-typed model also exposes `raw` and `toJson()` so unknown fields remain intact.
+Raw payloads may contain opaque tracking, endpoint, visitor, and continuation
+values. Do not log or publish them. The included inspectors report aggregate
+schema information without printing chat text, author names, API keys, or
+continuation tokens:
 
-`LiveChatEvent.raw` and `ChatItem.raw` intentionally expose unrecognized
-YouTube fields for forward-compatible integrations. They may contain tracking
-or continuation values; applications should not log them directly.
-
-## Live schema inspection
-
-The included inspector reports only aggregate schema information and never
-prints chat text, user names, API keys, or continuation tokens:
-
-```shell
+```sh
 dart run bin/inspect_live_chat.dart "@channel" 5
 dart run bin/inspect_updated_metadata.dart "@channel"
 ```
 
-InnerTube is an undocumented YouTube interface and can change without notice.
+## Development
+
+```sh
+dart pub get
+dart format --output=none --set-exit-if-changed .
+dart analyze
+dart test
+```
+
+Tests cover parsing, lossless serialization, malformed/future renderers,
+polling intervals, continuation rotation, deduplication, timeouts, recovery,
+resource ownership, session sharing, and stream closure without requiring a
+live network connection.

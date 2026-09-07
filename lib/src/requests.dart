@@ -42,22 +42,27 @@ class YoutubeHttpClient {
   YoutubeHttpClient({
     http.Client? client,
     this.requestTimeout = const Duration(seconds: 15),
+    this.context = const YoutubeClientContext(),
   })  : _client = client ?? http.Client(),
         _ownsClient = client == null;
 
   final http.Client _client;
   final bool _ownsClient;
   final Duration requestTimeout;
+  final YoutubeClientContext context;
   bool _closed = false;
 
   Future<FetchOptions> fetchLivePage(YoutubeId id) async {
-    final url = _generateLiveUrl(id);
+    final url = _generateLiveUrl(id, context);
     if (url == null) {
       throw ArgumentError('YoutubeId must have channelId, liveId, or handle');
     }
     final response = await _send(
       'fetchLivePage',
-      () => _client.get(Uri.parse(url), headers: {'User-Agent': _userAgent}),
+      () => _client.get(url, headers: {
+        'User-Agent':
+            context.userAgent.isEmpty ? _userAgent : context.userAgent,
+      }),
     );
     _requireSuccess(response, 'fetchLivePage');
     try {
@@ -84,6 +89,8 @@ class YoutubeHttpClient {
             'client': {
               'clientVersion': options.clientVersion,
               'clientName': _clientName,
+              'hl': context.languageCode,
+              'gl': context.regionCode,
             },
           },
           'continuation': options.continuation,
@@ -122,6 +129,8 @@ class YoutubeHttpClient {
         'client': {
           'clientVersion': options.clientVersion,
           'clientName': _clientName,
+          'hl': context.languageCode,
+          'gl': context.regionCode,
         },
       },
       'videoId': options.liveId,
@@ -209,16 +218,25 @@ Future<FetchOptions> fetchLivePage(YoutubeId id) async {
   }
 }
 
-String? _generateLiveUrl(YoutubeId id) {
+Uri? _generateLiveUrl(YoutubeId id, YoutubeClientContext context) {
+  final query = {
+    'hl': context.languageCode,
+    'gl': context.regionCode,
+  };
   if (id.channelId.isNotEmpty) {
-    return '$_youtubeBase/channel/${id.channelId}/live?hl=en&gl=US';
+    return Uri.parse('$_youtubeBase/channel/${id.channelId}/live')
+        .replace(queryParameters: query);
   }
   if (id.liveId.isNotEmpty) {
-    return '$_youtubeBase/watch?v=${id.liveId}&hl=en&gl=US';
+    return Uri.parse('$_youtubeBase/watch').replace(queryParameters: {
+      'v': id.liveId,
+      ...query,
+    });
   }
   if (id.handle.isNotEmpty) {
     final handle = id.handle.startsWith('@') ? id.handle : '@${id.handle}';
-    return '$_youtubeBase/$handle/live?hl=en&gl=US';
+    return Uri.parse('$_youtubeBase/$handle/live')
+        .replace(queryParameters: query);
   }
   return null;
 }

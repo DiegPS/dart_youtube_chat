@@ -9,9 +9,9 @@ class Thumbnail {
   const Thumbnail({required this.url, this.width = 0, this.height = 0});
 
   factory Thumbnail.fromJson(Map<String, dynamic> j) => Thumbnail(
-        url: j['url'] as String? ?? '',
-        width: j['width'] as int? ?? 0,
-        height: j['height'] as int? ?? 0,
+        url: _string(j['url']),
+        width: _integer(j['width']),
+        height: _integer(j['height']),
       );
 }
 
@@ -22,12 +22,13 @@ class MessageRun {
   const MessageRun({this.text, this.emoji});
 
   factory MessageRun.fromJson(Map<String, dynamic> j) {
-    if (j.containsKey('emoji')) {
+    final emoji = _nullableMap(j['emoji']);
+    if (emoji != null) {
       return MessageRun(
-        emoji: MessageEmoji.fromJson(j['emoji'] as Map<String, dynamic>),
+        emoji: MessageEmoji.fromJson(emoji),
       );
     }
-    return MessageRun(text: j['text'] as String?);
+    return MessageRun(text: j['text'] is String ? j['text'] as String : null);
   }
 }
 
@@ -45,15 +46,13 @@ class MessageEmoji {
   });
 
   factory MessageEmoji.fromJson(Map<String, dynamic> j) {
-    final image = j['image'] as Map<String, dynamic>? ?? {};
-    final rawThumbs = image['thumbnails'] as List<dynamic>? ?? [];
+    final image = _map(j['image']);
     return MessageEmoji(
-      emojiId: j['emojiId'] as String? ?? '',
-      shortcuts: (j['shortcuts'] as List<dynamic>? ?? []).cast<String>(),
-      thumbnails: rawThumbs
-          .map((t) => Thumbnail.fromJson(t as Map<String, dynamic>))
-          .toList(),
-      isCustomEmoji: j['isCustomEmoji'] as bool? ?? false,
+      emojiId: _string(j['emojiId']),
+      shortcuts: _stringList(j['shortcuts']),
+      thumbnails:
+          _mapList(image['thumbnails']).map(Thumbnail.fromJson).toList(),
+      isCustomEmoji: j['isCustomEmoji'] == true,
     );
   }
 }
@@ -70,18 +69,18 @@ class AuthorBadgeEntry {
   });
 
   factory AuthorBadgeEntry.fromJson(Map<String, dynamic> j) {
-    final renderer =
-        j['liveChatAuthorBadgeRenderer'] as Map<String, dynamic>? ?? {};
-    final customThumb = renderer['customThumbnail'] as Map<String, dynamic>?;
-    final icon = renderer['icon'] as Map<String, dynamic>?;
+    final renderer = _map(j['liveChatAuthorBadgeRenderer']);
+    final customThumb = _nullableMap(renderer['customThumbnail']);
+    final icon = _nullableMap(renderer['icon']);
     return AuthorBadgeEntry(
       customThumbnails: customThumb == null
           ? null
-          : (customThumb['thumbnails'] as List<dynamic>? ?? [])
-              .map((t) => Thumbnail.fromJson(t as Map<String, dynamic>))
+          : _mapList(customThumb['thumbnails'])
+              .map(Thumbnail.fromJson)
               .toList(),
-      iconType: icon?['iconType'] as String?,
-      tooltip: renderer['tooltip'] as String? ?? '',
+      iconType:
+          icon?['iconType'] is String ? icon!['iconType'] as String : null,
+      tooltip: _string(renderer['tooltip']),
     );
   }
 }
@@ -104,20 +103,19 @@ class MessageRendererBase {
   });
 
   factory MessageRendererBase.fromJson(Map<String, dynamic> j) {
-    final authorNameObj = j['authorName'] as Map<String, dynamic>?;
-    final authorPhoto = j['authorPhoto'] as Map<String, dynamic>? ?? {};
-    final rawThumbs = authorPhoto['thumbnails'] as List<dynamic>? ?? [];
+    final authorNameObj = _nullableMap(j['authorName']);
+    final authorPhoto = _map(j['authorPhoto']);
     return MessageRendererBase(
-      id: j['id'] as String? ?? '',
-      timestampUsec: j['timestampUsec'] as String? ?? '0',
-      authorName: authorNameObj?['simpleText'] as String?,
-      authorThumbnails: rawThumbs
-          .map((t) => Thumbnail.fromJson(t as Map<String, dynamic>))
-          .toList(),
-      authorBadges: (j['authorBadges'] as List<dynamic>? ?? [])
-          .map((b) => AuthorBadgeEntry.fromJson(b as Map<String, dynamic>))
-          .toList(),
-      authorExternalChannelId: j['authorExternalChannelId'] as String? ?? '',
+      id: _string(j['id']),
+      timestampUsec: _string(j['timestampUsec'], fallback: '0'),
+      authorName: authorNameObj?['simpleText'] is String
+          ? authorNameObj!['simpleText'] as String
+          : null,
+      authorThumbnails:
+          _mapList(authorPhoto['thumbnails']).map(Thumbnail.fromJson).toList(),
+      authorBadges:
+          _mapList(j['authorBadges']).map(AuthorBadgeEntry.fromJson).toList(),
+      authorExternalChannelId: _string(j['authorExternalChannelId']),
     );
   }
 }
@@ -132,12 +130,10 @@ class LiveChatTextMessageRenderer {
   });
 
   factory LiveChatTextMessageRenderer.fromJson(Map<String, dynamic> j) {
-    final msg = j['message'] as Map<String, dynamic>? ?? {};
+    final msg = _map(j['message']);
     return LiveChatTextMessageRenderer(
       base: MessageRendererBase.fromJson(j),
-      messageRuns: (msg['runs'] as List<dynamic>? ?? [])
-          .map((r) => MessageRun.fromJson(r as Map<String, dynamic>))
-          .toList(),
+      messageRuns: _mapList(msg['runs']).map(MessageRun.fromJson).toList(),
     );
   }
 }
@@ -156,15 +152,13 @@ class LiveChatPaidMessageRenderer {
   });
 
   factory LiveChatPaidMessageRenderer.fromJson(Map<String, dynamic> j) {
-    final msg = j['message'] as Map<String, dynamic>? ?? {};
-    final amt = j['purchaseAmountText'] as Map<String, dynamic>? ?? {};
+    final msg = _map(j['message']);
+    final amt = _map(j['purchaseAmountText']);
     return LiveChatPaidMessageRenderer(
       base: MessageRendererBase.fromJson(j),
-      messageRuns: (msg['runs'] as List<dynamic>? ?? [])
-          .map((r) => MessageRun.fromJson(r as Map<String, dynamic>))
-          .toList(),
-      purchaseAmountText: amt['simpleText'] as String? ?? '',
-      bodyBackgroundColor: j['bodyBackgroundColor'] as int? ?? 0,
+      messageRuns: _mapList(msg['runs']).map(MessageRun.fromJson).toList(),
+      purchaseAmountText: _string(amt['simpleText']),
+      bodyBackgroundColor: _integer(j['bodyBackgroundColor']),
     );
   }
 }
@@ -185,20 +179,17 @@ class LiveChatPaidStickerRenderer {
   });
 
   factory LiveChatPaidStickerRenderer.fromJson(Map<String, dynamic> j) {
-    final amt = j['purchaseAmountText'] as Map<String, dynamic>? ?? {};
-    final sticker = j['sticker'] as Map<String, dynamic>? ?? {};
-    final stickerAccess =
-        (sticker['accessibility'] as Map<String, dynamic>? ?? {});
+    final amt = _map(j['purchaseAmountText']);
+    final sticker = _map(j['sticker']);
     final stickerAccData =
-        (stickerAccess['accessibilityData'] as Map<String, dynamic>? ?? {});
+        _map(_map(sticker['accessibility'])['accessibilityData']);
     return LiveChatPaidStickerRenderer(
       base: MessageRendererBase.fromJson(j),
-      purchaseAmountText: amt['simpleText'] as String? ?? '',
-      stickerThumbnails: (sticker['thumbnails'] as List<dynamic>? ?? [])
-          .map((t) => Thumbnail.fromJson(t as Map<String, dynamic>))
-          .toList(),
-      stickerAccessibilityLabel: stickerAccData['label'] as String? ?? '',
-      backgroundColor: j['backgroundColor'] as int? ?? 0,
+      purchaseAmountText: _string(amt['simpleText']),
+      stickerThumbnails:
+          _mapList(sticker['thumbnails']).map(Thumbnail.fromJson).toList(),
+      stickerAccessibilityLabel: _string(stickerAccData['label']),
+      backgroundColor: _integer(j['backgroundColor']),
     );
   }
 }
@@ -213,12 +204,11 @@ class LiveChatMembershipItemRenderer {
   });
 
   factory LiveChatMembershipItemRenderer.fromJson(Map<String, dynamic> j) {
-    final headerSubtext = j['headerSubtext'] as Map<String, dynamic>? ?? {};
+    final headerSubtext = _map(j['headerSubtext']);
     return LiveChatMembershipItemRenderer(
       base: MessageRendererBase.fromJson(j),
-      headerSubtextRuns: (headerSubtext['runs'] as List<dynamic>? ?? [])
-          .map((r) => MessageRun.fromJson(r as Map<String, dynamic>))
-          .toList(),
+      headerSubtextRuns:
+          _mapList(headerSubtext['runs']).map(MessageRun.fromJson).toList(),
     );
   }
 }
@@ -241,21 +231,21 @@ class ActionItem {
   });
 
   factory ActionItem.fromJson(Map<String, dynamic> j) => ActionItem(
-        textMessage: j['liveChatTextMessageRenderer'] != null
+        textMessage: _nullableMap(j['liveChatTextMessageRenderer']) != null
             ? LiveChatTextMessageRenderer.fromJson(
-                j['liveChatTextMessageRenderer'] as Map<String, dynamic>)
+                _map(j['liveChatTextMessageRenderer']))
             : null,
-        paidMessage: j['liveChatPaidMessageRenderer'] != null
+        paidMessage: _nullableMap(j['liveChatPaidMessageRenderer']) != null
             ? LiveChatPaidMessageRenderer.fromJson(
-                j['liveChatPaidMessageRenderer'] as Map<String, dynamic>)
+                _map(j['liveChatPaidMessageRenderer']))
             : null,
-        membership: j['liveChatMembershipItemRenderer'] != null
+        membership: _nullableMap(j['liveChatMembershipItemRenderer']) != null
             ? LiveChatMembershipItemRenderer.fromJson(
-                j['liveChatMembershipItemRenderer'] as Map<String, dynamic>)
+                _map(j['liveChatMembershipItemRenderer']))
             : null,
-        paidSticker: j['liveChatPaidStickerRenderer'] != null
+        paidSticker: _nullableMap(j['liveChatPaidStickerRenderer']) != null
             ? LiveChatPaidStickerRenderer.fromJson(
-                j['liveChatPaidStickerRenderer'] as Map<String, dynamic>)
+                _map(j['liveChatPaidStickerRenderer']))
             : null,
         raw: Map.unmodifiable(j),
         rendererType: j.keys.firstWhere(
@@ -277,11 +267,10 @@ class Action {
   });
 
   factory Action.fromJson(Map<String, dynamic> j) {
-    final add = j['addChatItemAction'] as Map<String, dynamic>?;
+    final add = _nullableMap(j['addChatItemAction']);
     return Action(
-      addChatItemAction: add != null
-          ? ActionItem.fromJson(add['item'] as Map<String, dynamic>? ?? {})
-          : null,
+      addChatItemAction:
+          add != null ? ActionItem.fromJson(_map(add['item'])) : null,
       raw: Map.unmodifiable(j),
       actionType: j.keys.firstWhere(
         (key) => key != 'clickTrackingParams' && key != 'trackingParams',
@@ -306,14 +295,20 @@ class ContinuationData {
       invalidationContinuation ?? timedContinuation ?? '';
 
   factory ContinuationData.fromJson(Map<String, dynamic> j) {
-    final inv = j['invalidationContinuationData'] as Map<String, dynamic>?;
-    final timed = j['timedContinuationData'] as Map<String, dynamic>?;
+    final inv = _nullableMap(j['invalidationContinuationData']);
+    final timed = _nullableMap(j['timedContinuationData']);
     return ContinuationData(
-      invalidationContinuation: inv?['continuation'] as String?,
-      timedContinuation: timed?['continuation'] as String?,
-      timeoutMs: (timed?['timeoutMs'] as num?)?.toInt() ??
-          (inv?['timeoutMs'] as num?)?.toInt() ??
-          1000,
+      invalidationContinuation: inv?['continuation'] is String
+          ? inv!['continuation'] as String
+          : null,
+      timedContinuation: timed?['continuation'] is String
+          ? timed!['continuation'] as String
+          : null,
+      timeoutMs: timed?['timeoutMs'] is num
+          ? (timed!['timeoutMs'] as num).toInt()
+          : inv?['timeoutMs'] is num
+              ? (inv!['timeoutMs'] as num).toInt()
+              : 1000,
     );
   }
 }
@@ -321,22 +316,42 @@ class ContinuationData {
 class GetLiveChatResponse {
   final List<Action> actions;
   final List<ContinuationData> continuations;
+  final Map<String, dynamic> raw;
 
   const GetLiveChatResponse({
     required this.actions,
     required this.continuations,
+    this.raw = const {},
   });
 
   factory GetLiveChatResponse.fromJson(Map<String, dynamic> j) {
-    final cc = j['continuationContents'] as Map<String, dynamic>? ?? {};
-    final lcc = cc['liveChatContinuation'] as Map<String, dynamic>? ?? {};
+    final cc = _map(j['continuationContents']);
+    final lcc = _map(cc['liveChatContinuation']);
     return GetLiveChatResponse(
-      actions: (lcc['actions'] as List<dynamic>? ?? [])
-          .map((a) => Action.fromJson(a as Map<String, dynamic>))
+      actions: _mapList(lcc['actions']).map(Action.fromJson).toList(),
+      continuations: _mapList(lcc['continuations'])
+          .map(ContinuationData.fromJson)
           .toList(),
-      continuations: (lcc['continuations'] as List<dynamic>? ?? [])
-          .map((c) => ContinuationData.fromJson(c as Map<String, dynamic>))
-          .toList(),
+      raw: j,
     );
   }
 }
+
+Map<String, dynamic> _map(Object? value) =>
+    value is Map<String, dynamic> ? value : const {};
+
+Map<String, dynamic>? _nullableMap(Object? value) =>
+    value is Map<String, dynamic> ? value : null;
+
+List<Map<String, dynamic>> _mapList(Object? value) => value is List
+    ? value.whereType<Map<String, dynamic>>().toList(growable: false)
+    : const [];
+
+List<String> _stringList(Object? value) => value is List
+    ? value.whereType<String>().toList(growable: false)
+    : const [];
+
+String _string(Object? value, {String fallback = ''}) =>
+    value is String ? value : fallback;
+
+int _integer(Object? value) => value is num ? value.toInt() : 0;

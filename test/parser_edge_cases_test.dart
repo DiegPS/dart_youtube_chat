@@ -212,6 +212,19 @@ void main() {
           item.raw['liveChatTextMessageRenderer'] as Map<String, dynamic>;
       expect(renderer['trackingParams'], 'opaque');
     });
+
+    test('normal messages expose context actions as read-only data', () {
+      final item = _parseRenderer('liveChatTextMessageRenderer', {
+        ..._base(),
+        'message': {'simpleText': 'hello'},
+        'contextMenuEndpoint': {
+          'liveChatItemContextMenuEndpoint': {'params': 'opaque'},
+        },
+      });
+
+      expect(item.menuActions.single.endpointName, 'contextMenuEndpoint');
+      expect(item.menuActions.single.raw, contains('contextMenuEndpoint'));
+    });
   });
 }
 

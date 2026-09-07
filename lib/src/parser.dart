@@ -73,6 +73,7 @@ LiveChatBatch parseChatBatch(GetLiveChatResponse data) {
     events: events,
     continuation: continuation?.continuation ?? '',
     pollingInterval: Duration(milliseconds: continuation?.timeoutMs ?? 1000),
+    raw: data.raw,
   );
 }
 
@@ -245,6 +246,15 @@ ChatItem? _parseActionToChatItem(Action action) {
     kind: kind,
     membershipText: membershipText,
     rendererType: item.rendererType,
+    buttons: _findReadOnlyActions(item.raw, const {
+      'buttonRenderer',
+      'toggleButtonRenderer',
+    }),
+    menuActions: _findReadOnlyActions(item.raw, const {
+      'contextMenuEndpoint',
+      'menuServiceItemRenderer',
+      'menuNavigationItemRenderer',
+    }),
     raw: item.raw,
   );
 }
@@ -259,14 +269,63 @@ String _plainText(List<MessageRun> runs) => runs
 
 LiveChatEvent _parseEvent(Action action) {
   final renderer = _findRenderer(action.raw);
-  final rendererId = renderer?.$2['id'];
+  final rendererId = _findString(action.raw, 'id');
   return LiveChatEvent(
+    kind: _eventKind(action.actionType, renderer?.$1 ?? ''),
     actionType: action.actionType,
     rendererType: renderer?.$1 ?? '',
-    id: rendererId is String ? rendererId : '',
-    text: _extractText(renderer?.$2),
+    id: rendererId,
+    text: _extractTextDeep(action.raw),
+    targetItemId: _findString(action.raw, 'targetItemId'),
+    targetActionId: _findString(action.raw, 'targetActionId').isNotEmpty
+        ? _findString(action.raw, 'targetActionId')
+        : _findString(action.raw, 'actionId'),
+    authorChannelId: _findString(action.raw, 'externalChannelId').isNotEmpty
+        ? _findString(action.raw, 'externalChannelId')
+        : _findString(action.raw, 'authorExternalChannelId'),
+    giftMembershipCount: _findInteger(action.raw, 'giftMembershipsCount'),
+    duration: Duration(
+      seconds: _findInteger(action.raw, 'durationSec'),
+    ),
+    buttons: _findReadOnlyActions(action.raw, const {
+      'buttonRenderer',
+      'toggleButtonRenderer',
+    }),
+    menuActions: _findReadOnlyActions(action.raw, const {
+      'contextMenuEndpoint',
+      'menuServiceItemRenderer',
+      'menuNavigationItemRenderer',
+    }),
     raw: action.raw,
   );
+}
+
+LiveChatEventKind _eventKind(String actionType, String rendererType) {
+  return switch (actionType) {
+    'removeChatItemAction' ||
+    'markChatItemAsDeletedAction' =>
+      LiveChatEventKind.messageDeleted,
+    'markChatItemsByAuthorAsDeletedAction' =>
+      LiveChatEventKind.authorMessagesDeleted,
+    'replaceChatItemAction' => LiveChatEventKind.chatItemReplaced,
+    'addBannerToLiveChatCommand' => LiveChatEventKind.bannerAdded,
+    'removeBannerForLiveChatCommand' => LiveChatEventKind.bannerRemoved,
+    'addLiveChatTickerItemAction' => LiveChatEventKind.tickerAdded,
+    'removeLiveChatTickerItemAction' => LiveChatEventKind.tickerRemoved,
+    'updateLiveChatPollAction' => LiveChatEventKind.pollUpdated,
+    'showLiveChatTooltipCommand' => LiveChatEventKind.tooltip,
+    _ => switch (rendererType) {
+        'liveChatViewerEngagementMessageRenderer' ||
+        'liveChatModeChangeMessageRenderer' ||
+        'liveChatAutoModMessageRenderer' =>
+          LiveChatEventKind.viewerNotice,
+        'liveChatSponsorshipsGiftPurchaseAnnouncementRenderer' =>
+          LiveChatEventKind.membershipGiftPurchased,
+        'liveChatSponsorshipsGiftRedemptionAnnouncementRenderer' =>
+          LiveChatEventKind.membershipGiftReceived,
+        _ => LiveChatEventKind.unknown,
+      },
+  };
 }
 
 (String, Map<String, dynamic>)? _findRenderer(Object? value) {
@@ -288,21 +347,147 @@ LiveChatEvent _parseEvent(Action action) {
   return null;
 }
 
-String _extractText(Map<String, dynamic>? renderer) {
-  if (renderer == null) return '';
-  for (final key in const ['message', 'headerPrimaryText', 'headerSubtext']) {
-    final value = renderer[key];
-    if (value is Map<String, dynamic>) {
-      final simple = value['simpleText'];
-      if (simple is String) return simple;
-      final runs = value['runs'];
-      if (runs is List) {
-        return runs
-            .whereType<Map<String, dynamic>>()
-            .map((run) => run['text'] as String? ?? '')
-            .join();
+String _extractTextDeep(Object? value) {
+  if (value is Map<String, dynamic>) {
+    for (final key in const [
+      'message',
+      'primaryText',
+      'headerPrimaryText',
+      'headerSubtext',
+      'deletedStateMessage',
+      'text',
+    ]) {
+      if (value.containsKey(key)) {
+        final parsed = _textValue(value[key]);
+        if (parsed.isNotEmpty) return parsed;
       }
+    }
+    for (final child in value.values) {
+      final parsed = _extractTextDeep(child);
+      if (parsed.isNotEmpty) return parsed;
+    }
+  } else if (value is List) {
+    for (final child in value) {
+      final parsed = _extractTextDeep(child);
+      if (parsed.isNotEmpty) return parsed;
     }
   }
   return '';
+}
+
+String _textValue(Object? value) {
+  if (value is String) return value;
+  if (value is! Map<String, dynamic>) return '';
+  final simple = value['simpleText'];
+  if (simple is String) return simple;
+  final runs = value['runs'];
+  if (runs is! List) return '';
+  return runs.whereType<Map<String, dynamic>>().map((run) {
+    final text = run['text'];
+    if (text is String) return text;
+    final emoji = run['emoji'];
+    if (emoji is Map<String, dynamic>) {
+      final shortcuts = emoji['shortcuts'];
+      if (shortcuts is List) {
+        return shortcuts.whereType<String>().firstOrNull ?? '';
+      }
+      return emoji['emojiId'] is String ? emoji['emojiId'] as String : '';
+    }
+    return '';
+  }).join();
+}
+
+String _findString(Object? value, String key) {
+  if (value is Map<String, dynamic>) {
+    final direct = value[key];
+    if (direct is String) return direct;
+    for (final child in value.values) {
+      final found = _findString(child, key);
+      if (found.isNotEmpty) return found;
+    }
+  } else if (value is List) {
+    for (final child in value) {
+      final found = _findString(child, key);
+      if (found.isNotEmpty) return found;
+    }
+  }
+  return '';
+}
+
+int _findInteger(Object? value, String key) {
+  if (value is Map<String, dynamic>) {
+    final direct = value[key];
+    if (direct is num) return direct.toInt();
+    if (direct is String) return int.tryParse(direct) ?? 0;
+    for (final child in value.values) {
+      final found = _findInteger(child, key);
+      if (found != 0) return found;
+    }
+  } else if (value is List) {
+    for (final child in value) {
+      final found = _findInteger(child, key);
+      if (found != 0) return found;
+    }
+  }
+  return 0;
+}
+
+List<LiveChatAction> _findReadOnlyActions(
+  Object? value,
+  Set<String> acceptedKeys,
+) {
+  final actions = <LiveChatAction>[];
+  void visit(Object? node) {
+    if (node is Map<String, dynamic>) {
+      for (final entry in node.entries) {
+        if (acceptedKeys.contains(entry.key) &&
+            entry.value is Map<String, dynamic>) {
+          final renderer = entry.value as Map<String, dynamic>;
+          actions.add(LiveChatAction(
+            endpointName: entry.key.endsWith('Endpoint')
+                ? entry.key
+                : (_findEndpointName(renderer).isNotEmpty
+                    ? _findEndpointName(renderer)
+                    : entry.key),
+            text: _textValue(renderer['text']),
+            iconType: _findString(renderer['icon'], 'iconType'),
+            accessibilityLabel: _findString(renderer['accessibility'], 'label'),
+            raw: {entry.key: renderer},
+          ));
+        } else {
+          visit(entry.value);
+        }
+      }
+    } else if (node is List) {
+      for (final child in node) {
+        visit(child);
+      }
+    }
+  }
+
+  visit(value);
+  return List.unmodifiable(actions);
+}
+
+String _findEndpointName(Object? value) {
+  if (value is Map<String, dynamic>) {
+    for (final entry in value.entries) {
+      if (entry.key.endsWith('Endpoint')) return entry.key;
+      final nested = _findEndpointName(entry.value);
+      if (nested.isNotEmpty) return nested;
+    }
+  } else if (value is List) {
+    for (final child in value) {
+      final nested = _findEndpointName(child);
+      if (nested.isNotEmpty) return nested;
+    }
+  }
+  return '';
+}
+
+extension<T> on Iterable<T> {
+  T? get firstOrNull {
+    final iterator = this.iterator;
+    return iterator.moveNext() ? iterator.current : null;
+  }
 }

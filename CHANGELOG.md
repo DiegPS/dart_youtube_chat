@@ -1,3 +1,16 @@
+## 0.4.0
+
+- Add typed deletion, banner, ticker, notice, poll, tooltip, and gifted
+  membership events while preserving unknown actions losslessly.
+- Expose read-only button and menu commands on messages and events.
+- Preserve the complete `get_live_chat` response on every parsed batch and
+  tolerate malformed or future list entries.
+- Add accumulated metadata snapshots for sparse `updated_metadata` responses.
+- Add strict public YouTube identifier/URL parsing and configurable locale.
+- Add `YoutubeLiveSession` so chat and metadata share one live-page resolution.
+- Expand deterministic tests and documentation for privacy, lifecycle, images,
+  errors, raw data, and both supported endpoints.
+
 ## 0.3.0
 
 - Model the complete anonymous `updated_metadata` response, including
